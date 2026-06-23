@@ -1,0 +1,6 @@
+name = "voice-visualizer"
+compatibility_date = "2026-06-23"
+
+[pages_build_config]
+build_command = "npm run build"
+destination_dir = "dist"

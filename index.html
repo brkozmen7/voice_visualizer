@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="tr">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Özel Gerçek Zamanlı Ses Görselleştirici" />
+  <title>Voice Visualizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@300;400;600&display=swap"
+    rel="stylesheet">
+</head>
+
+<body>
+  <!-- Always Visible Smart Widget (Clock, Date, Weather) -->
+  <div class="smart-widget">
+    <div id="weather-greeting" class="widget-greeting">Merhaba, BURAK</div>
+    <!-- Time & Date -->
+    <div class="widget-section time-section">
+      <div id="clock-time" class="clock-display">00:00<span class="seconds">00</span></div>
+      <div id="clock-date" class="date-display">Tarih yükleniyor...</div>
+    </div>
+
+    <div class="widget-divider"></div>
+
+    <!-- Weather Gaziantep -->
+    <div class="widget-section weather-section">
+      <div class="weather-current">
+        <div class="weather-header">
+          <span class="city-name">Gaziantep</span>
+          <span id="weather-desc" class="weather-desc">Hava durumu yükleniyor...</span>
+          <span id="weather-range" class="weather-range">↓ --°  ↑ --°</span>
+        </div>
+        <div class="weather-temp-container">
+          <span id="weather-icon" class="current-icon">☀️</span>
+          <span id="weather-temp" class="current-temp">--°C</span>
+        </div>
+      </div>
+
+      <!-- Hourly Forecast (2, 4, 6 hours) -->
+      <div class="weather-forecast">
+        <div class="forecast-item">
+          <span id="forecast-time-0" class="f-time">-- AM</span>
+          <span id="forecast-icon-0" class="f-icon">☀️</span>
+          <span id="forecast-temp-0" class="f-temp">--°</span>
+        </div>
+        <div class="forecast-item">
+          <span id="forecast-time-1" class="f-time">-- AM</span>
+          <span id="forecast-icon-1" class="f-icon">☀️</span>
+          <span id="forecast-temp-1" class="f-temp">--°</span>
+        </div>
+        <div class="forecast-item">
+          <span id="forecast-time-2" class="f-time">-- AM</span>
+          <span id="forecast-icon-2" class="f-icon">☀️</span>
+          <span id="forecast-temp-2" class="f-temp">--°</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom-Left News Ticker Widget -->
+  <div class="news-widget">
+    <div class="news-columns">
+      <!-- Column 1: News Feed -->
+      <div class="news-column news-feed-col">
+        <div class="news-header">
+          <span class="news-title-icon"></span>
+          <span class="news-header-title">HABER AKIŞI</span>
+        </div>
+
+        <div class="news-content">
+          <img id="news-img" src="https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=80&h=80&fit=crop"
+            alt="News Image" class="news-image" />
+          <div class="news-text-container">
+            <div id="news-ticker-text" class="news-text">Haberler yükleniyor...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="news-column-divider"></div>
+
+      <!-- Column 2: Turkey Agenda -->
+      <div class="news-column agenda-col">
+        <div class="news-header">
+          <span class="news-title-icon"></span>
+          <span class="news-header-title">TÜRKİYE GÜNDEMİ</span>
+        </div>
+
+        <div id="agenda-list" class="agenda-list">
+          <div class="agenda-loading">Gündem yükleniyor...</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="news-divider"></div>
+
+    <!-- Finance Ticker -->
+    <div class="finance-ticker">
+      <div class="finance-scroll">
+        <span class="finance-item"><span class="fin-label">USD/TRY</span> <span class="fin-val">32.84</span> <span
+            class="fin-trend up">▲</span></span>
+        <span class="finance-item"><span class="fin-label">EUR/TRY</span> <span class="fin-val">35.15</span> <span
+            class="fin-trend down">▼</span></span>
+        <span class="finance-item"><span class="fin-label">BTC/USD</span> <span class="fin-val">65,420</span> <span
+            class="fin-trend up">▲</span></span>
+        <span class="finance-item"><span class="fin-label">ALTIN(G)</span> <span class="fin-val">2,450</span> <span
+            class="fin-trend up">▲</span></span>
+        <!-- Duplicate for seamless looping -->
+        <span class="finance-item"><span class="fin-label">USD/TRY</span> <span class="fin-val">32.84</span> <span
+            class="fin-trend up">▲</span></span>
+        <span class="finance-item"><span class="fin-label">EUR/TRY</span> <span class="fin-val">35.15</span> <span
+            class="fin-trend down">▼</span></span>
+        <span class="finance-item"><span class="fin-label">BTC/USD</span> <span class="fin-val">65,420</span> <span
+            class="fin-trend up">▲</span></span>
+        <span class="finance-item"><span class="fin-label">ALTIN(G)</span> <span class="fin-val">2,450</span> <span
+            class="fin-trend up">▲</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gear toggle (zen mode) -->
+  <button id="btn-toggle-ui" class="btn-toggle-ui" title="Ayarları Göster / Gizle" aria-label="Ayarları Göster / Gizle">
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path
+        d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  </button>
+
+  <!-- Full-screen canvas -->
+  <canvas id="visualizer-canvas"></canvas>
+
+  <!-- Main UI -->
+  <main class="app-container">
+    <header class="app-header">
+      <h1>VOICE VISUALIZER</h1>
+      <p class="subtitle">Kişisel Ses Görselleştirici</p>
+    </header>
+
+    <section class="dashboard" id="dashboard">
+
+      <!-- Start / Stop -->
+      <div class="control-group action-group">
+        <button id="btn-toggle-capture" class="btn btn-primary btn-glow">
+          <span class="btn-icon">▶</span>
+          <span class="btn-text">Başlat</span>
+        </button>
+      </div>
+
+      <!-- Audio Source — 3 options -->
+      <div class="control-group">
+        <label class="group-label">Ses Kaynağı</label>
+        <div class="source-grid">
+          <button id="src-mic" class="btn-source active" data-source="mic">
+            <svg class="src-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" x2="12" y1="19" y2="22" />
+            </svg>
+            <span class="src-label">Mikrofon</span>
+          </button>
+          <button id="src-system" class="btn-source" data-source="system">
+            <svg class="src-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="20" height="14" x="2" y="3" rx="2" />
+              <line x1="8" x2="16" y1="21" y2="21" />
+              <line x1="12" x2="12" y1="17" y2="21" />
+            </svg>
+            <span class="src-label">Sistem Sesi</span>
+          </button>
+          <button id="src-both" class="btn-source" data-source="both">
+            <svg class="src-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" x2="12" y1="19" y2="22" />
+              <path d="M5 12h2m10 0h2" opacity="0.5" />
+            </svg>
+            <span class="src-label">İkisi Birden</span>
+          </button>
+        </div>
+        <p id="system-notice" class="notice hidden">
+          💡 <strong>Sistem Sesi:</strong> Ekranı paylaşırken <em>"Sistem sesini paylaş"</em> kutusunu işaretleyin.
+        </p>
+      </div>
+
+      <!-- Sensitivity -->
+      <div class="control-group">
+        <div class="slider-header">
+          <label for="slider-sensitivity" class="group-label">Hassasiyet</label>
+          <span id="val-sensitivity" class="slider-value">1.5×</span>
+        </div>
+        <input type="range" id="slider-sensitivity" min="0.5" max="3.0" step="0.1" value="1.5" class="slider">
+      </div>
+
+      <!-- Visual Style -->
+      <div class="control-group">
+        <label class="group-label">Görsel Tema</label>
+        <div class="style-grid">
+          <button id="style-classic" class="btn-style active" data-style="classic">White</button>
+          <button id="style-neon" class="btn-style" data-style="neon">Neon</button>
+          <button id="style-sunset" class="btn-style" data-style="sunset">Sunset</button>
+          <button id="style-cyber" class="btn-style" data-style="cyber">Cyber</button>
+          <button id="style-gold" class="btn-style" data-style="gold">Gold</button>
+        </div>
+      </div>
+
+      <!-- Real-time stats -->
+      <div class="stats-panel">
+        <div class="stat-item">
+          <span class="stat-label">BASS</span>
+          <div class="progress-bar-container">
+            <div id="bar-bass" class="progress-bar" style="width:0%"></div>
+          </div>
+          <span id="txt-bass" class="stat-value">0.00</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">MID</span>
+          <div class="progress-bar-container">
+            <div id="bar-mid" class="progress-bar" style="width:0%"></div>
+          </div>
+          <span id="txt-mid" class="stat-value">0.00</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">HIGH</span>
+          <div class="progress-bar-container">
+            <div id="bar-high" class="progress-bar" style="width:0%"></div>
+          </div>
+          <span id="txt-high" class="stat-value">0.00</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">FREQ</span>
+          <div class="progress-bar-container">
+            <div id="bar-freq" class="progress-bar" style="width:0%"></div>
+          </div>
+          <span id="txt-freq" class="stat-value">0 Hz</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">VOL</span>
+          <div class="progress-bar-container">
+            <div id="bar-vol" class="progress-bar" style="width:0%"></div>
+          </div>
+          <span id="txt-vol" class="stat-value">0.00</span>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <div class="footer-credit">
+    Developed by <a href="https://burakozmen.com" target="_blank" rel="noopener noreferrer">burakozmen.com</a>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>
