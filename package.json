@@ -12,8 +12,8 @@
     "electron:build": "npm run build && electron-builder"
   },
   "build": {
-    "appId": "com.burakozmen.voicevisualizer",
-    "productName": "Voice Visualizer",
+    "appId": "com.burakozmen.magicmirror",
+    "productName": "Magic Mirror",
     "directories": {
       "output": "dist-electron"
     },

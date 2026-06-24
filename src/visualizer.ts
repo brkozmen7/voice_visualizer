@@ -47,6 +47,12 @@ export class VoiceVisualizer {
   private animationFrameId: number = 0;
   private time: number = 0;
 
+  // Silence & standby dot mode state
+  private silenceTimer: number = 0;
+  private isSilentMode: boolean = false;
+  private morphFactor: number = 1.0;
+  private lastTime: number = performance.now();
+
   // Background particle field removed for performance
 
   // ─── Performance caches ────────────────────────────────────────────────────
@@ -346,10 +352,11 @@ export class VoiceVisualizer {
   // ─── Render Loop ───────────────────────────────────────────────────────────
 
   private loop = (): void => {
-    // ── Idle FPS throttle ──────────────────────────────────────────────────
-    // When not capturing, cap render rate at ~20fps to save CPU/GPU on RPi.
-    // During active capture, every RAF fires (full 60fps for silky visuals).
-    if (!this.isCapturing) {
+    // ── Idle & Silent FPS throttle ──────────────────────────────────────────
+    // When not capturing OR when completely silent (morphed to nothingness),
+    // cap render rate at ~20fps to save CPU/GPU on Raspberry Pi.
+    const isMorphedSilent = this.isCapturing && this.morphFactor === 0;
+    if (!this.isCapturing || isMorphedSilent) {
       const now = performance.now();
       if (now - this._lastFrameTime < VoiceVisualizer.IDLE_FRAME_MS) {
         this.animationFrameId = requestAnimationFrame(this.loop);
@@ -357,6 +364,11 @@ export class VoiceVisualizer {
       }
       this._lastFrameTime = now;
     }
+
+    // Compute delta time for smooth, frame-rate independent animations
+    const nowFrame = performance.now();
+    const dt = Math.min(0.1, (nowFrame - this.lastTime) / 1000); // Cap at 100ms to handle screen suspension
+    this.lastTime = nowFrame;
 
     if (this.isCapturing) {
       this.analyzeAudio();
@@ -398,6 +410,27 @@ export class VoiceVisualizer {
       this.stats.pitch *= 0.90;
     }
 
+    // Silence detection: volume threshold < 2% (0.02)
+    const currentVol = this.isCapturing ? this.stats.vol : 0;
+    if (currentVol < 0.02) {
+      this.silenceTimer += dt;
+      if (this.silenceTimer >= 10.0) {
+        this.isSilentMode = true;
+      }
+    } else {
+      this.silenceTimer = 0;
+      this.isSilentMode = false;
+    }
+
+    // Update morphFactor: morphs into a point in ~2.1s with organic ease-out, expands back in 100ms
+    if (this.isSilentMode) {
+      this.morphFactor = this.morphFactor * Math.exp(-dt * 2.2);
+      if (this.morphFactor < 0.005) {
+        this.morphFactor = 0;
+      }
+    } else {
+      this.morphFactor = Math.min(1.0, this.morphFactor + dt / 0.10);
+    }
 
     this.draw();
     this.animationFrameId = requestAnimationFrame(this.loop);
@@ -414,13 +447,22 @@ export class VoiceVisualizer {
     // Draw dynamic background aura glow and bokeh stardust
     this.drawBackground(width, height);
 
-    this.ctx.globalCompositeOperation = 'screen';
-
     // Time: constant gentle base speed + organic volume acceleration
     this.time += 0.008 + this.smooth.vol * 0.006;
 
-    const waveCount = 45; // Half of 85, looks extremely lush with optimized thickness
-    const pts = 75;       // Half of 140, runs twice as fast
+    // Bass and volume dynamic bounce: lifts the whole ribbon bundle vertically
+    const dynamicLift = (this.smooth.bass * -32) + (this.smooth.vol * -12);
+    const centerY     = height / 2 + dynamicLift;
+
+    // Early return if completely silent / morphed to save 100% CPU
+    if (this.morphFactor < 0.005) {
+      return;
+    }
+
+    this.ctx.globalCompositeOperation = 'screen';
+
+    const waveCount = 16; // Reduced to 16 for ultra-low CPU load on Raspberry Pi
+    const pts = 45;       // Reduced to 45 for ultra-low CPU load on Raspberry Pi
 
     // Fill pre-allocated env/t caches once per frame (avoids per-wave re-computation & allocation)
     const envCache = this._envCache;
@@ -441,10 +483,6 @@ export class VoiceVisualizer {
     // Scale down wave amplitude on portrait screens to avoid crowding the widgets
     const isPortrait = height > width;
     const ampScale = isPortrait ? 0.65 : 1.0;
-
-    // Bass and volume dynamic bounce: lifts the whole ribbon bundle vertically
-    const dynamicLift = (this.smooth.bass * -32) + (this.smooth.vol * -12);
-    const centerY     = height / 2 + dynamicLift;
 
     const activeSpread = 0.15 + this.smooth.vol * 0.85;
     const spread  = (1.0 + this.smooth.bass * 0.70) * activeSpread;
@@ -500,9 +538,9 @@ export class VoiceVisualizer {
     for (let i = 0; i < waveCount; i++) {
       const depth = i / (waveCount - 1); // 0 = back, 1 = front
 
-      // Thicker lines and slightly higher opacities make 45 waves look even richer than 85 thin ones
-      const opacity   = 0.08 + depth * 0.55; 
-      const lineWidth = 0.8 + depth * 1.8;   
+      // Thicker lines and slightly higher opacities to make 16 waves look full and premium
+      const opacity   = (0.12 + depth * 0.58) * this.morphFactor; 
+      const lineWidth = 1.0 + depth * 2.5;   
 
       // Bass spreads the ribbon layers apart (breathing open/close)
       const yOffset = ((depth - 0.5) * 14 + Math.cos(depth * Math.PI) * 32) * spread;
@@ -556,8 +594,12 @@ export class VoiceVisualizer {
         // Increased bass sway
         const bassSway   = Math.sin(t * 2.0 - this.time * 0.8) * bassInf * 52 * env;
 
-        const y = centerY + yOffset + wave * amp * env + (midRipple + highRipple) * env + bassSway;
-        const x = t * width + xShift;
+        const originalY = centerY + yOffset + wave * amp * env + (midRipple + highRipple) * env + bassSway;
+        const originalX = t * width + xShift;
+
+        // Morph coordinates towards the center
+        const x = width / 2 + (originalX - width / 2) * this.morphFactor;
+        const y = centerY + (originalY - centerY) * this.morphFactor;
 
         j === 0 ? this.ctx.moveTo(x, y) : this.ctx.lineTo(x, y);
       }
@@ -611,16 +653,6 @@ export class VoiceVisualizer {
     this.ctx.fillStyle = grad;
     this.ctx.fillRect(0, 0, width, height);
 
-    // 2. Outer Dynamic Vignette (Pulses to create cinematic breathing)
-    const vignetteGrad = this.ctx.createRadialGradient(
-      width / 2, height / 2, Math.min(width, height) * 0.35,
-      width / 2, height / 2, Math.max(width, height) * 0.75
-    );
-    const vignetteOpacity = Math.min(0.92, 0.86 - this.smooth.vol * 0.12);
-    vignetteGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    vignetteGrad.addColorStop(1, `rgba(0, 0, 0, ${vignetteOpacity})`);
-
-    this.ctx.fillStyle = vignetteGrad;
-    this.ctx.fillRect(0, 0, width, height);
+    // Vignette is offloaded directly to CSS on #visualizer-canvas for performance
   }
 }

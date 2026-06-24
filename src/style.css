@@ -7,6 +7,15 @@
   --text-secondary: #9ca3af;
   --text-muted: #6b7280;
   
+  /* Safe-Area Layout System Metrics */
+  --sa-top: clamp(1.2rem, 3.5vh, 2.5rem);
+  --sa-bottom: clamp(1.2rem, 3.5vh, 2.5rem);
+  --sa-left: clamp(1.2rem, 3vw, 2.5rem);
+  --sa-right: clamp(1.2rem, 3vw, 2.5rem);
+  --widget-clock-width: clamp(250px, 22vw, 300px);
+  --dashboard-width: 340px;
+  --greeting-half-width: clamp(180px, 22vw, 360px);
+
   /* Classic White styling */
   --accent-color: #ffffff;
   --accent-glow: rgba(255, 255, 255, 0.35);
@@ -49,6 +58,8 @@ body {
   height: 100vh;
   z-index: 1;
   display: block;
+  /* CSS Vignette fallback avoids frame-level canvas drawing overhead */
+  background: radial-gradient(circle at center, transparent 35%, rgba(0, 0, 0, 0.85) 100%);
   /* GPU hint: canvas compositing layer */
   will-change: transform;
 }
@@ -61,7 +72,7 @@ body {
   height: 100vh;
   display: grid;
   grid-template-rows: auto 1fr;
-  padding: 2.5rem;
+  padding: var(--sa-top) var(--sa-right) var(--sa-bottom) var(--sa-left);
   pointer-events: none; /* Let canvas drag operations fall through, but interactive controls will override this */
 }
 
@@ -70,7 +81,7 @@ body {
   text-align: center;
   margin-bottom: 1rem;
   animation: fadeInDown 0.8s ease-out;
-  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .app-logo {
@@ -106,18 +117,16 @@ body {
 
 /* Glassmorphic Dashboard Panel */
 .dashboard {
-  background: rgba(6, 8, 14, 0.92);
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  background: rgba(10, 14, 23, 0.97); /* Solid fallback for low CPU/GPU */
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 20px;
   padding: 1.75rem;
-  width: 340px;
+  width: var(--dashboard-width);
   height: fit-content;
   align-self: end;
   justify-self: end;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0;
   pointer-events: auto;
   box-shadow:
     0 32px 64px rgba(0, 0, 0, 0.7),
@@ -128,7 +137,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
   overflow: hidden;
 }
@@ -146,22 +155,20 @@ body {
 /* Floating UI Settings Toggle Button */
 .btn-toggle-ui {
   position: fixed;
-  top: 1.5rem;
-  right: 1.5rem;
+  top: var(--sa-top);
+  right: var(--sa-right);
   z-index: 130; /* Keep toggle button on top of settings panel */
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: rgba(10, 14, 23, 0.45);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(15, 20, 32, 0.92); /* Solid fallback for low CPU/GPU */
   border: 1px solid rgba(255, 255, 255, 0.08);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
   pointer-events: auto;
 }
@@ -171,7 +178,6 @@ body:not(.ui-collapsed) .smart-widget,
 body:not(.ui-collapsed) .news-widget {
   opacity: 0.15 !important;
   pointer-events: none !important;
-  filter: blur(2px);
 }
 
 .btn-toggle-ui:hover {
@@ -250,7 +256,7 @@ body.ui-collapsed .btn-toggle-ui:hover {
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), background-color 0.3s ease, color 0.3s ease;
   border: none;
 }
 
@@ -318,7 +324,7 @@ body.ui-collapsed .btn-toggle-ui:hover {
   font-weight: 500;
   border-radius: 9px;
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: color 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -369,7 +375,7 @@ body.ui-collapsed .btn-toggle-ui:hover {
   font-weight: 600;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   text-align: center;
   letter-spacing: 0.04em;
 }
@@ -749,8 +755,8 @@ body.gold-theme .dashboard {
 /* ── Always Visible Smart Widget (Clock, Date, Weather) ── */
 .smart-widget {
   position: fixed;
-  top: clamp(1.5rem, 3vh, 2.5rem);
-  left: clamp(1.5rem, 3vw, 2.5rem);
+  top: var(--sa-top);
+  left: var(--sa-left);
   z-index: 90;
   background: transparent;
   border: none;
@@ -758,13 +764,20 @@ body.gold-theme .dashboard {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: clamp(0.6rem, 1.5vh, 1.2rem);
+  gap: clamp(0.4rem, 1vh, 0.7rem);
   box-shadow: none;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
   pointer-events: auto;
-  width: clamp(300px, 26vw, 360px);
-  min-width: clamp(300px, 26vw, 360px);
-  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  
+  /* Container Query setup */
+  container-type: inline-size;
+  container-name: smartWidget;
+
+  /* Dynamic width calculation to never touch the centered greeting */
+  width: min(var(--widget-clock-width), calc(50vw - var(--greeting-half-width) - var(--sa-left) - 1rem));
+  min-width: 220px; /* Keep it readable */
+  
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   animation: fadeInLeft 0.8s cubic-bezier(0.16, 1, 0.3, 1);
   /* Visibility transitions use GPU opacity */
   will-change: opacity;
@@ -772,19 +785,22 @@ body.gold-theme .dashboard {
 
 .widget-greeting {
   position: fixed;
-  top: clamp(1.5rem, 3.5vh, 2.5rem);
+  top: var(--sa-top);
   left: 50%;
   transform: translateX(-50%);
-  font-size: clamp(1.1rem, 2vw, 1.8rem); /* Large greeting */
-  font-weight: 200; /* Ultra thin corporate/formal look */
+  font-size: clamp(1.1rem, 2.2vw, 1.8rem); /* Large greeting */
+  font-weight: 300; /* Slightly thicker premium look */
   letter-spacing: 0.25em;
-  color: rgba(255, 255, 255, 0.85);
+  color: #ffffff; /* Brighter pure white */
   text-transform: uppercase;
-  opacity: 0.85;
+  opacity: 1; /* Full brightness */
   font-family: 'Outfit', sans-serif;
   z-index: 90;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  text-shadow: 0 0 15px rgba(255, 255, 255, 0.18), 0 2px 4px rgba(0, 0, 0, 0.85); /* Premium glowing look */
   white-space: nowrap;
+  max-width: calc(2 * var(--greeting-half-width));
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: center;
 }
 
@@ -799,8 +815,8 @@ body.gold-theme .dashboard {
 
 .clock-display {
   font-family: 'Outfit', sans-serif;
-  font-size: clamp(3.0rem, 4vw, 3.8rem); /* Fluid clock size */
-  font-weight: 100; /* Extremely thin, premium smart mirror look */
+  font-size: clamp(1.8rem, 17cqw, 3.4rem); /* Container query driven sizing */
+  font-weight: 100; /* Extremely thin look */
   line-height: 1;
   letter-spacing: -0.02em;
   color: #ffffff;
@@ -809,7 +825,7 @@ body.gold-theme .dashboard {
 }
 
 .clock-display .seconds {
-  font-size: clamp(1.0rem, 1.3vw, 1.3rem); /* Fluid seconds size */
+  font-size: clamp(0.75rem, 5.5cqw, 1.15rem); /* Container query driven sizing */
   font-weight: 200;
   color: rgba(255, 255, 255, 0.55);
   margin-left: 0.35rem;
@@ -818,7 +834,7 @@ body.gold-theme .dashboard {
 
 .date-display {
   font-family: 'Outfit', sans-serif;
-  font-size: clamp(0.85rem, 1.0vw, 1.0rem); /* Fluid date size */
+  font-size: clamp(0.68rem, 4.2cqw, 0.88rem); /* Container query driven sizing */
   color: rgba(255, 255, 255, 0.6);
   margin-top: 0.25rem;
   font-weight: 300;
@@ -833,7 +849,7 @@ body.gold-theme .dashboard {
 }
 
 .weather-section {
-  gap: clamp(0.4rem, 1vh, 0.6rem);
+  gap: clamp(0.25rem, 0.6vh, 0.4rem);
 }
 
 .weather-current {
@@ -864,7 +880,7 @@ body.gold-theme .dashboard {
 
 .meta-val {
   font-family: 'Outfit', sans-serif;
-  font-size: clamp(0.68rem, 0.74vw, 0.78rem);
+  font-size: clamp(0.65rem, 3.8cqw, 0.78rem);
   color: rgba(255, 255, 255, 0.65);
   font-weight: 300;
   letter-spacing: 0.02em;
@@ -893,7 +909,7 @@ body.gold-theme .dashboard {
 }
 
 .current-temp {
-  font-size: clamp(2.0rem, 2.8vw, 3.2rem); /* More compact current temp */
+  font-size: clamp(1.2rem, 14cqw, 2.8rem); /* Container query driven sizing */
   font-weight: 100;
   font-family: 'Outfit', sans-serif;
   color: #ffffff;
@@ -910,7 +926,7 @@ body.gold-theme .dashboard {
 
 .forecast-title {
   font-family: 'Outfit', sans-serif;
-  font-size: clamp(0.62rem, 0.68vw, 0.72rem);
+  font-size: clamp(0.55rem, 3.2cqw, 0.68rem); /* Container query driven sizing */
   font-weight: 400;
   letter-spacing: 0.08em;
   color: rgba(255, 255, 255, 0.6);
@@ -920,7 +936,7 @@ body.gold-theme .dashboard {
 .weather-daily {
   display: flex;
   flex-direction: column;
-  gap: clamp(0.2rem, 0.4vh, 0.3rem);
+  gap: clamp(0.12rem, 0.25vh, 0.2rem);
   width: 100%;
   /* Isolate layout recalculation for 6-row forecast list */
   contain: content;
@@ -936,11 +952,11 @@ body.gold-theme .dashboard {
 
 .daily-item {
   display: grid;
-  grid-template-columns: 2.2rem 1.8rem 1fr 2.5rem;
+  grid-template-columns: 14cqw 10cqw 1fr 16cqw; /* Proportional cqw columns */
   align-items: center;
   width: 100%;
   font-family: 'Outfit', sans-serif;
-  font-size: clamp(0.74rem, 0.8vw, 0.86rem);
+  font-size: clamp(0.62rem, 3.6cqw, 0.78rem); /* Container query driven sizing */
   color: rgba(255, 255, 255, 0.8);
   font-weight: 300;
   transition: all 0.2s ease;
@@ -971,8 +987,8 @@ body.gold-theme .dashboard {
 
 /* Weather SVG Styling for clean corporate look */
 .weather-svg {
-  width: clamp(26px, 3vw, 34px); /* Smaller weather icon */
-  height: clamp(26px, 3vw, 34px);
+  width: clamp(20px, 9cqw, 34px); /* Container query driven size */
+  height: clamp(20px, 9cqw, 34px);
   stroke: #ffffff;
   stroke-width: 1.25 !important;
   fill: none;
@@ -981,14 +997,14 @@ body.gold-theme .dashboard {
 }
 
 .weather-main-row .weather-svg {
-  width: clamp(28px, 3.5vw, 38px);
-  height: clamp(28px, 3.5vw, 38px);
+  width: clamp(26px, 11cqw, 42px); /* Container query driven size */
+  height: clamp(26px, 11cqw, 42px);
   stroke-width: 1.25 !important;
 }
 
 .daily-item .weather-svg {
-  width: clamp(13px, 1.6vw, 16px);
-  height: clamp(13px, 1.6vw, 16px);
+  width: clamp(12px, 5.5cqw, 18px); /* Container query driven size */
+  height: clamp(12px, 5.5cqw, 18px);
   stroke-width: 1.25 !important;
 }
 
@@ -1015,22 +1031,24 @@ body.gold-theme .city-name, body.gold-theme .clock-display {
 /* ── Bottom-Left News Ticker Widget ── */
 .news-widget {
   position: fixed;
-  bottom: clamp(1.5rem, 3vh, 2.5rem);
-  left: clamp(1.5rem, 3vw, 2.5rem);
+  bottom: var(--sa-bottom);
+  left: var(--sa-left);
   z-index: 90;
   background: transparent;
   border: none;
   border-radius: 0;
   padding: 0;
-  width: clamp(700px, 60vw, 840px);
-  min-width: clamp(700px, 60vw, 840px);
+  /* Constrain width to never collide with the settings dashboard on the right */
+  width: calc(100vw - var(--sa-left) - var(--sa-right) - var(--dashboard-width) - 2rem);
+  max-width: 760px; /* Reduced from 840px */
+  min-width: 500px;
   display: flex;
   flex-direction: column;
-  gap: clamp(0.6rem, 1.5vh, 1.2rem);
+  gap: clamp(0.4rem, 1vh, 0.7rem); /* Reduced from 0.6rem-1.2rem */
   box-shadow: none;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
   pointer-events: auto;
-  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   animation: fadeInLeft 1s cubic-bezier(0.16, 1, 0.3, 1);
   /* Visibility transitions use GPU opacity */
   will-change: opacity;
@@ -1038,7 +1056,7 @@ body.gold-theme .city-name, body.gold-theme .clock-display {
 
 .news-columns {
   display: flex;
-  gap: clamp(1.5rem, 3vw, 2.5rem);
+  gap: clamp(1.0rem, 2vw, 1.6rem); /* Reduced from 1.5rem-2.5rem */
   width: 100%;
 }
 
@@ -1047,6 +1065,9 @@ body.gold-theme .city-name, body.gold-theme .clock-display {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+  /* Container Query setup */
+  container-type: inline-size;
+  container-name: newsColumn;
 }
 
 .news-feed-col {
@@ -1075,7 +1096,7 @@ body.gold-theme .city-name, body.gold-theme .clock-display {
 }
 
 .news-header-title {
-  font-size: clamp(0.68rem, 0.76vw, 0.76rem); /* Fluid news title */
+  font-size: clamp(0.62rem, 3.6cqw, 0.70rem); /* Fluid news title */
   font-weight: 400;
   letter-spacing: 0.15em;
   color: rgba(255, 255, 255, 0.55);
@@ -1084,17 +1105,17 @@ body.gold-theme .city-name, body.gold-theme .clock-display {
 }
 
 .news-content {
-  height: clamp(100px, 15vh, 120px);
+  height: clamp(80px, 12vh, 95px); /* Reduced from 100px-120px */
   overflow: hidden;
   position: relative;
   display: flex;
   align-items: center;
-  gap: 0.85rem;
+  gap: 0.75rem;
 }
 
 .news-image {
-  width: clamp(68px, 8vw, 76px); /* Fluid news image dimensions */
-  height: clamp(68px, 8vw, 76px);
+  width: clamp(48px, 16cqw, 64px); /* Fluid news image dimensions */
+  height: clamp(48px, 16cqw, 64px);
   object-fit: cover;
   border-radius: 6px;
   flex-shrink: 0;
@@ -1114,8 +1135,8 @@ body.gold-theme .city-name, body.gold-theme .clock-display {
 }
 
 .news-text {
-  font-size: clamp(0.88rem, 1.0vw, 1.05rem); /* Fluid news text size */
-  line-height: 1.45;
+  font-size: clamp(0.70rem, 4.4cqw, 0.92rem); /* Fluid news text size */
+  line-height: 1.4;
   color: #ffffff;
   font-weight: 300;
   font-family: 'Outfit', sans-serif;
@@ -1148,9 +1169,9 @@ body.gold-theme .city-name, body.gold-theme .clock-display {
 .agenda-list {
   display: flex;
   flex-direction: column;
-  gap: clamp(0.35rem, 0.8vh, 0.5rem);
+  gap: clamp(0.2rem, 0.5vh, 0.35rem); /* Reduced from 0.35rem-0.5rem */
   justify-content: center;
-  height: clamp(100px, 15vh, 120px);
+  height: clamp(80px, 12vh, 95px); /* Reduced from 100px-120px */
   overflow: hidden;
   /* Isolate layout for agenda items */
   contain: content;
@@ -1179,11 +1200,11 @@ body.gold-theme .agenda-item:hover { background: rgba(255, 215, 0, 0.06); }
 
 .agenda-rank {
   font-family: 'Outfit', sans-serif;
-  font-size: 1.05rem;
+  font-size: 0.92rem; /* Reduced from 1.05rem */
   font-weight: 100;
   color: #ffffff;
   opacity: 0.25;
-  width: 20px;
+  width: 18px; /* Reduced from 20px */
   text-align: center;
 }
 
@@ -1194,14 +1215,14 @@ body.gold-theme .agenda-item:hover { background: rgba(255, 215, 0, 0.06); }
 }
 
 .agenda-topic {
-  font-size: 0.9rem;
+  font-size: clamp(0.70rem, 4.4cqw, 0.85rem);
   font-weight: 400;
   color: #ffffff;
   font-family: 'Outfit', sans-serif;
 }
 
 .agenda-tweets {
-  font-size: 0.7rem;
+  font-size: clamp(0.55rem, 3.2cqw, 0.65rem);
   color: rgba(255, 255, 255, 0.4);
   font-weight: 300;
   font-family: 'Outfit', sans-serif;
@@ -1247,14 +1268,14 @@ body.gold-theme .agenda-item:hover { background: rgba(255, 215, 0, 0.06); }
   align-items: center;
   gap: 0.3rem;
   font-family: 'Outfit', sans-serif;
-  font-size: 0.75rem;
+  font-size: 0.70rem; /* Reduced from 0.75rem */
   font-weight: 300;
   flex-shrink: 0;
 }
 
 .fin-label {
   font-weight: 400;
-  font-size: 0.7rem;
+  font-size: 0.65rem; /* Reduced from 0.7rem */
   color: rgba(255, 255, 255, 0.45);
   letter-spacing: 0.05em;
 }
@@ -1375,8 +1396,8 @@ body.gold-theme .news-column-divider {
 /* Footer Credit (Bottom Right) */
 .footer-credit {
   position: fixed;
-  bottom: 1.5rem;
-  right: 1.5rem;
+  bottom: var(--sa-bottom);
+  right: var(--sa-right);
   z-index: 100;
   font-size: 0.72rem;
   font-weight: 400;
@@ -1437,9 +1458,7 @@ body.ui-collapsed .footer-credit {
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--text-primary);
-  background: rgba(10, 14, 23, 0.45);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(15, 20, 32, 0.92); /* Solid fallback for low CPU/GPU */
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   cursor: pointer;
@@ -1483,59 +1502,63 @@ body.ui-collapsed .footer-credit {
 @media (orientation: portrait) {
   /* Common portrait styles (widths, font-weights, and vertical stacking of news/agenda) */
   .smart-widget {
-    width: clamp(280px, 32vw, 340px); /* Matches news-widget width exactly for a clean sidebar look */
-    min-width: clamp(280px, 32vw, 340px);
-    gap: clamp(0.35rem, 1.2vh, 0.6rem); /* Compact gaps matching news-widget */
+    width: clamp(240px, 28vw, 290px); /* Smaller dikey look */
+    min-width: clamp(240px, 28vw, 290px);
+    gap: clamp(0.2rem, 0.8vh, 0.4rem); /* More compact gaps */
   }
 
   .clock-display {
-    font-size: clamp(2.8rem, 8vw, 4.4rem); /* Slightly smaller, more refined clock display */
+    font-size: clamp(2.0rem, 7vw, 3.0rem); /* Refined, smaller clock display */
   }
 
   .clock-display .seconds {
-    font-size: clamp(0.95rem, 2.2vw, 1.3rem);
-    margin-left: 0.35rem;
+    font-size: clamp(0.7rem, 1.8vw, 0.95rem);
+    margin-left: 0.25rem;
   }
 
   .date-display {
-    font-size: clamp(0.8rem, 1.8vw, 1.0rem);
-    letter-spacing: 0.08em;
+    font-size: clamp(0.68rem, 1.5vw, 0.82rem);
+    letter-spacing: 0.05em;
   }
 
   .city-name {
-    font-size: clamp(0.85rem, 1.8vw, 1.05rem);
-    letter-spacing: 0.12em;
+    font-size: clamp(0.72rem, 1.6vw, 0.88rem);
+    letter-spacing: 0.08em;
   }
 
   .weather-desc {
-    font-size: clamp(0.75rem, 1.6vw, 0.85rem);
+    font-size: clamp(0.65rem, 1.3vw, 0.75rem);
   }
 
   .weather-range {
-    font-size: clamp(0.62rem, 1.2vw, 0.72rem);
+    font-size: clamp(0.55rem, 1.0vw, 0.65rem);
   }
 
   .current-temp {
-    font-size: clamp(1.8rem, 3.2vw, 2.4rem); /* Very compact temp in portrait */
+    font-size: clamp(1.3rem, 2.8vw, 1.8rem); /* Much more compact current temp */
   }
 
   .weather-main-row .weather-svg {
-    width: clamp(26px, 4.0vw, 32px);
-    height: clamp(26px, 4.0vw, 32px);
+    width: clamp(20px, 3.2vw, 25px);
+    height: clamp(20px, 3.2vw, 25px);
   }
 
   .weather-current {
-    gap: clamp(0.2rem, 0.5vh, 0.35rem);
+    gap: clamp(0.12rem, 0.3vh, 0.22rem);
+  }
+
+  .weather-daily {
+    gap: clamp(0.08rem, 0.2vh, 0.15rem);
   }
 
   .daily-item {
-    font-size: clamp(0.7rem, 0.76vw, 0.8rem);
-    grid-template-columns: 2.0rem 1.6rem 1fr 2.2rem;
+    font-size: clamp(0.6rem, 0.7vw, 0.72rem);
+    grid-template-columns: 1.8rem 1.4rem 1fr 2.0rem;
   }
 
   .daily-item .weather-svg {
-    width: 14px;
-    height: 14px;
+    width: 11px;
+    height: 11px;
   }
 
   .news-widget {
@@ -1610,29 +1633,29 @@ body.ui-collapsed .footer-credit {
   }
 
   .app-container {
-    padding: clamp(1.2rem, 3vh, 2.5rem);
+    padding: var(--sa-top) var(--sa-right) var(--sa-bottom) var(--sa-left);
   }
 
   /* 1. Large Height: Wall Mirror / Kiosk Layout (Pin elements to top and bottom) */
   @media (min-height: 750px) {
     .smart-widget {
       position: fixed !important;
-      top: 2rem; /* Pushed closer to the top edge */
-      left: 2rem;
+      top: calc(var(--sa-top) + 3.5rem); /* Pushed below greeting to prevent overlap */
+      left: var(--sa-left);
       margin: 0;
     }
 
     .news-widget {
       position: fixed !important;
-      bottom: 2rem; /* Pushed closer to the bottom edge */
-      left: 2rem;
+      bottom: var(--sa-bottom);
+      left: var(--sa-left);
       margin: 0;
     }
 
     .footer-credit {
       position: fixed !important;
-      bottom: 0.6rem !important;
-      right: 1rem !important;
+      bottom: calc(var(--sa-bottom) / 2) !important;
+      right: var(--sa-right) !important;
       left: auto !important;
       top: auto !important;
       margin: 0 !important;
@@ -1651,14 +1674,14 @@ body.ui-collapsed .footer-credit {
       position: relative !important;
       top: auto;
       left: auto;
-      margin: 1.5rem auto 1rem auto;
+      margin: calc(var(--sa-top) + 3.5rem) auto calc(var(--sa-top) / 2) auto; /* Pushed below greeting to prevent overlap */
     }
 
     .news-widget {
       position: relative !important;
       bottom: auto;
       left: auto;
-      margin: 0 auto 2.5rem auto;
+      margin: 0 auto var(--sa-bottom) auto;
     }
   }
 }
