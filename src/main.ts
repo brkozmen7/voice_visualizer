@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const visualizer = new VoiceVisualizer(canvas);
 
-  // ── UI element references ──────────────────────────────────────────────────
+  // ── UI element references (all cached once at startup) ────────────────────
   const btnToggleUI      = document.getElementById('btn-toggle-ui')      as HTMLButtonElement;
   const btnToggleCapture = document.getElementById('btn-toggle-capture') as HTMLButtonElement;
   const srcMic           = document.getElementById('src-mic')            as HTMLButtonElement;
@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const systemNotice     = document.getElementById('system-notice')      as HTMLParagraphElement;
   const sliderSens       = document.getElementById('slider-sensitivity') as HTMLInputElement;
   const valSens          = document.getElementById('val-sensitivity')    as HTMLSpanElement;
+  const selectAudioDevice = document.getElementById('select-audio-device') as HTMLSelectElement;
 
   const barBass = document.getElementById('bar-bass') as HTMLDivElement;
   const barMid  = document.getElementById('bar-mid')  as HTMLDivElement;
@@ -28,6 +29,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const txtHigh = document.getElementById('txt-high') as HTMLSpanElement;
   const txtFreq = document.getElementById('txt-freq') as HTMLSpanElement;
   const txtVol  = document.getElementById('txt-vol')  as HTMLSpanElement;
+
+  // ── Cached weather DOM refs (avoids repeated getElementById in hot path) ───
+  const elWeatherTemp    = document.getElementById('weather-temp')      as HTMLSpanElement;
+  const elWeatherIcon    = document.getElementById('weather-icon')      as HTMLSpanElement;
+  const elWeatherWindInfo = document.getElementById('weather-wind-info') as HTMLSpanElement;
+  const elWeatherWindIcon = document.getElementById('weather-wind-icon') as HTMLSpanElement;
+  const elWeatherSunTime  = document.getElementById('weather-sun-time')  as HTMLSpanElement;
+  const elWeatherSunIcon  = document.getElementById('weather-sun-icon')  as HTMLSpanElement;
+  const elWeatherDaily    = document.getElementById('weather-daily')     as HTMLDivElement;
 
   // ── State ──────────────────────────────────────────────────────────────────
   let activeSource: AudioSource = 'mic';
@@ -74,7 +84,8 @@ document.addEventListener('DOMContentLoaded', () => {
     txtEl.textContent = 'Bağlanıyor…';
 
     try {
-      await visualizer.start(activeSource);
+      const selectedDevice = selectAudioDevice.value;
+      await visualizer.start(activeSource, selectedDevice);
       setCaptureUI(true);
       // Auto-collapse UI after a short delay so the user can enjoy the visual
       setTimeout(() => {
@@ -96,6 +107,66 @@ document.addEventListener('DOMContentLoaded', () => {
       document.body.classList.remove('ui-collapsed');
     } else {
       await doStart();
+    }
+  });
+
+  // ── Device enumeration and management ──────────────────────────────────────
+  async function populateDevices() {
+    try {
+      // Temporarily request permission to ensure device labels are populated
+      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      if (tempStream) {
+        tempStream.getTracks().forEach(track => track.stop());
+      }
+
+      // Clear list
+      selectAudioDevice.innerHTML = '';
+
+      // Screen share option
+      const optScreen = document.createElement('option');
+      optScreen.value = 'screen-share';
+      optScreen.textContent = '🖥️ Ekran Paylaşımı (Tarayıcı)';
+      selectAudioDevice.appendChild(optScreen);
+
+      // Default microphone option
+      const optDefault = document.createElement('option');
+      optDefault.value = 'default';
+      optDefault.textContent = '🎤 Varsayılan Mikrofon';
+      selectAudioDevice.appendChild(optDefault);
+
+      let index = 1;
+      devices.forEach(device => {
+        if (device.kind === 'audioinput') {
+          // Skip alias names
+          if (device.deviceId === 'default' || device.deviceId === 'communications') return;
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.textContent = device.label || `Giriş Aygıtı ${index++}`;
+          selectAudioDevice.appendChild(option);
+        }
+      });
+
+      // Restore saved selection
+      const savedDevice = localStorage.getItem('selected_audio_device');
+      if (savedDevice && Array.from(selectAudioDevice.options).some(opt => opt.value === savedDevice)) {
+        selectAudioDevice.value = savedDevice;
+      } else {
+        selectAudioDevice.value = 'default';
+      }
+    } catch (err) {
+      console.error('Cihazlar listelenirken hata oluştu:', err);
+    }
+  }
+
+  populateDevices();
+
+  navigator.mediaDevices.addEventListener('devicechange', populateDevices);
+
+  selectAudioDevice.addEventListener('change', () => {
+    localStorage.setItem('selected_audio_device', selectAudioDevice.value);
+    if (visualizer.isCapturing) {
+      doStart();
     }
   });
 
@@ -177,228 +248,179 @@ document.addEventListener('DOMContentLoaded', () => {
   updateTime();
 
   // ── Weather (Gaziantep) ────────────────────────────────────────────────────
+  // localStorage cache keys
+  const WEATHER_CACHE_KEY = 'vv_weather_data';
+  const WEATHER_CACHE_TS  = 'vv_weather_ts';
+  const WEATHER_TTL_MS    = 20 * 60 * 1000; // 20 minutes — avoid hammering API on RPi restarts
   function getWeatherIcon(code: number): string {
-    if (code === 0) return '☀️'; // Sunny
-    if (code >= 1 && code <= 3) return '🌤️'; // Partly cloudy
-    if (code === 45 || code === 48) return '🌫️'; // Fog
-    if (code >= 51 && code <= 67) return '🌧️'; // Rain
-    if (code >= 71 && code <= 77) return '❄️'; // Snow
-    if (code >= 80 && code <= 82) return '🌦️'; // Showers
-    if (code >= 95 && code <= 99) return '🌩️'; // Thunderstorm
-    return '☀️';
+    if (code === 0) {
+      // Clear / Sunny
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="weather-svg"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
+    }
+    if (code >= 1 && code <= 3) {
+      // Partly Cloudy
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="weather-svg"><path d="M12 2a3 3 0 0 0-3 3v.22a5 5 0 0 1 8 0V5a3 3 0 0 0-3-3Z" stroke-dasharray="2 2" opacity="0.6"/><path d="M17.5 19A4.5 4.5 0 0 0 22 14.5c0-2.3-1.7-4.2-4-4.5A7 7 0 1 0 5 15.5c0 .3 0 .7.1 1a4.5 4.5 0 0 0 8.8 1.5c.3.1.7.1 1.1.1a4.48 4.48 0 0 0 2.5-.1"/></svg>`;
+    }
+    if (code === 45 || code === 48) {
+      // Fog / Sisli
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="weather-svg"><line x1="5" y1="8" x2="19" y2="8"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="6" y1="16" x2="18" y2="16"/><line x1="4" y1="20" x2="20" y2="20"/></svg>`;
+    }
+    if (code >= 51 && code <= 67) {
+      // Rainy
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="weather-svg"><path d="M20 16.5A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/><line x1="8" y1="16" x2="6" y2="22"/><line x1="12" y1="16" x2="10" y2="22"/><line x1="16" y1="16" x2="14" y2="22"/></svg>`;
+    }
+    if (code >= 71 && code <= 77) {
+      // Snowy
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="weather-svg"><path d="M20 16.5A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/><line x1="8" y1="17" x2="8" y2="17.01"/><line x1="8" y1="21" x2="8" y2="21.01"/><line x1="12" y1="19" x2="12" y2="19.01"/><line x1="12" y1="23" x2="12" y2="23.01"/><line x1="16" y1="17" x2="16" y2="17.01"/><line x1="16" y1="21" x2="16" y2="21.01"/></svg>`;
+    }
+    if (code >= 80 && code <= 82) {
+      // Showers
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="weather-svg"><path d="M20 16.5A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/><line x1="7" y1="16" x2="5" y2="22"/><line x1="10" y1="16" x2="8" y2="22"/><line x1="13" y1="16" x2="11" y2="22"/><line x1="16" y1="16" x2="14" y2="22"/></svg>`;
+    }
+    if (code >= 95 && code <= 99) {
+      // Thunderstorm
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="weather-svg"><path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.62 8.58"/><polyline points="13 11 9 17 12 17 10 23"/></svg>`;
+    }
+    // Default Clear
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="weather-svg"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
   }
 
-  function getWeatherDesc(code: number): string {
-    if (code === 0) return 'Açık';
-    if (code >= 1 && code <= 3) return 'Parçalı Bulutlu';
-    if (code === 45 || code === 48) return 'Sisli';
-    if (code >= 51 && code <= 67) return 'Yağmurlu';
-    if (code >= 71 && code <= 77) return 'Karlı';
-    if (code >= 80 && code <= 82) return 'Sağanak Yağış';
-    if (code >= 95 && code <= 99) return 'Fırtına';
-    return 'Açık';
+
+  const SUNRISE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" class="meta-svg-icon"><path d="M12 2v8M5.22 5.22l3.54 3.54M18.78 5.22l-3.54 3.54M2 18h20M5 22h14M12 10a4 4 0 0 0-4 4h8a4 4 0 0 0-4-4Z"/></svg>`;
+  const SUNSET_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" class="meta-svg-icon"><path d="M12 14v-8M5.22 10.78l3.54-3.54M18.78 10.78l-3.54-3.54M2 18h20M5 22h14M12 14a4 4 0 0 0-4-4h8a4 4 0 0 0-4 4Z"/></svg>`;
+  const WIND_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" class="meta-svg-icon"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59-3.41A2 2 0 1 1 14 8H2m15.59-1.41A2 2 0 1 1 19 10H2"/></svg>`;
+
+  function getWindDirectionTr(degrees: number): string {
+    const directions = [
+      'K', 'KKD', 'KD', 'DKD', 
+      'D', 'DGD', 'GD', 'GGD', 
+      'G', 'GGB', 'GB', 'BGB', 
+      'B', 'BKB', 'KB', 'KKB'
+    ];
+    const index = Math.round(((degrees % 360) / 22.5)) % 16;
+    return directions[index];
+  }
+
+  function getTurkishDayName(dateStr: string): string {
+    const date = new Date(dateStr);
+    const days = ['Paz.', 'Pzt.', 'Sal.', 'Çar.', 'Per.', 'Cum.', 'Cmt.'];
+    return days[date.getDay()];
+  }
+
+  function applyWeatherData(data: any) {
+    const currentTemp = data.current.temperature_2m;
+    const currentCode = data.current.weather_code;
+    const windSpeed   = data.current.wind_speed_10m;
+    const windDir     = data.current.wind_direction_10m;
+
+    if (elWeatherTemp) elWeatherTemp.textContent = `${currentTemp.toFixed(1)}°`;
+    if (elWeatherIcon) elWeatherIcon.innerHTML = getWeatherIcon(currentCode);
+
+    if (elWeatherWindIcon) elWeatherWindIcon.innerHTML = WIND_SVG;
+    if (elWeatherWindInfo) {
+      elWeatherWindInfo.textContent = `${Math.round(windSpeed)} ${getWindDirectionTr(windDir)}`;
+    }
+
+    if (data.daily?.sunrise && data.daily?.sunset) {
+      const now          = new Date();
+      const todaySunrise = new Date(data.daily.sunrise[0]);
+      const todaySunset  = new Date(data.daily.sunset[0]);
+      let displayTimeStr = '';
+      let displayIcon    = '';
+
+      if (now >= todaySunrise && now < todaySunset) {
+        const hs = String(todaySunset.getHours()).padStart(2, '0');
+        const ms = String(todaySunset.getMinutes()).padStart(2, '0');
+        displayTimeStr = `${hs}:${ms}`;
+        displayIcon    = SUNSET_SVG;
+      } else {
+        const sunriseDate = now >= todaySunset ? new Date(data.daily.sunrise[1]) : todaySunrise;
+        const hs = String(sunriseDate.getHours()).padStart(2, '0');
+        const ms = String(sunriseDate.getMinutes()).padStart(2, '0');
+        displayTimeStr = `${hs}:${ms}`;
+        displayIcon    = SUNRISE_SVG;
+      }
+      if (elWeatherSunIcon) elWeatherSunIcon.innerHTML = displayIcon;
+      if (elWeatherSunTime) elWeatherSunTime.textContent = displayTimeStr;
+    }
+
+    if (elWeatherDaily && data.daily?.time) {
+      const htmlParts: string[] = [];
+      for (let i = 1; i <= 6; i++) {
+        if (i >= data.daily.time.length) break;
+        const dayName  = getTurkishDayName(data.daily.time[i]);
+        const iconHtml = getWeatherIcon(data.daily.weather_code[i]);
+        const maxTemp  = data.daily.temperature_2m_max[i].toFixed(1);
+        const minTemp  = data.daily.temperature_2m_min[i].toFixed(1);
+        htmlParts.push(`<div class="daily-item"><span class="daily-day">${dayName}</span><span class="daily-icon">${iconHtml}</span><span class="daily-temp-max">${maxTemp}</span><span class="daily-temp-min">${minTemp}</span></div>`);
+      }
+      elWeatherDaily.innerHTML = htmlParts.join('');
+    }
   }
 
   function useFallbackWeather() {
-    const tempEl = document.getElementById('weather-temp');
-    const iconEl = document.getElementById('weather-icon');
-    const descEl = document.getElementById('weather-desc');
-    const rangeEl = document.getElementById('weather-range');
-    
-    if (tempEl) tempEl.textContent = '33°C';
-    if (iconEl) iconEl.textContent = '☀️';
-    if (descEl) descEl.textContent = 'Açık';
-    if (rangeEl) rangeEl.textContent = '↓ 18°C  ↑ 35°C';
-
-    const now = new Date();
-    let currentHour = now.getHours();
-    let count = 0;
-    let hourToCheck = currentHour + 1;
-    
-    while (count < 3) {
-      if (hourToCheck % 2 === 0) {
-        const displayHour = hourToCheck % 24;
-        const ampm = displayHour >= 12 ? 'PM' : 'AM';
-        let hour12 = displayHour % 12;
-        hour12 = hour12 ? hour12 : 12;
-        
-        const timeEl = document.getElementById(`forecast-time-${count}`);
-        const fIconEl = document.getElementById(`forecast-icon-${count}`);
-        const fTempEl = document.getElementById(`forecast-temp-${count}`);
-        
-        if (timeEl) timeEl.textContent = `${hour12} ${ampm}`;
-        if (fIconEl) fIconEl.textContent = '☀️';
-        if (fTempEl) fTempEl.textContent = `${32 - count * 2}°`;
-        
-        count++;
-      }
-      hourToCheck++;
+    if (elWeatherTemp) elWeatherTemp.textContent = '33.2°';
+    if (elWeatherIcon) elWeatherIcon.innerHTML = getWeatherIcon(0);
+    if (elWeatherWindIcon) elWeatherWindIcon.innerHTML = WIND_SVG;
+    if (elWeatherWindInfo) elWeatherWindInfo.textContent = '6 BGB';
+    if (elWeatherSunIcon)  elWeatherSunIcon.innerHTML = SUNSET_SVG;
+    if (elWeatherSunTime)  elWeatherSunTime.textContent = '20:12';
+    if (elWeatherDaily) {
+      const fallbackDays = ['Pzt.', 'Sal.', 'Çar.', 'Per.', 'Cum.', 'Cmt.'];
+      elWeatherDaily.innerHTML = fallbackDays.map((day, i) =>
+        `<div class="daily-item"><span class="daily-day">${day}</span><span class="daily-icon">${getWeatherIcon(0)}</span><span class="daily-temp-max">${(32.5 - i).toFixed(1)}</span><span class="daily-temp-min">${(18.2 + i * 0.5).toFixed(1)}</span></div>`
+      ).join('');
     }
   }
 
   async function updateWeather() {
+    // ── localStorage cache: skip network if data is fresh (<20min) ─────────────
     try {
-      const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=37.0662&longitude=37.3833&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto');
-      if (!res.ok) throw new Error('API error');
+      const cachedTs  = parseInt(localStorage.getItem(WEATHER_CACHE_TS) || '0', 10);
+      const cachedStr = localStorage.getItem(WEATHER_CACHE_KEY);
+      if (cachedStr && Date.now() - cachedTs < WEATHER_TTL_MS) {
+        applyWeatherData(JSON.parse(cachedStr));
+        return; // skip network fetch entirely
+      }
+    } catch (_) { /* ignore stale cache parse errors */ }
+
+    try {
+      const res = await fetch(
+        'https://api.open-meteo.com/v1/forecast' +
+        '?latitude=37.0662&longitude=37.3833' +
+        '&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m' +
+        '&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset' +
+        '&timezone=auto&forecast_days=7'
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-
-      const currentTemp = Math.round(data.current.temperature_2m);
-      const currentCode = data.current.weather_code;
-
-      const tempEl = document.getElementById('weather-temp');
-      const iconEl = document.getElementById('weather-icon');
-      const descEl = document.getElementById('weather-desc');
-      const rangeEl = document.getElementById('weather-range');
-
-      if (tempEl) tempEl.textContent = `${currentTemp}°C`;
-      if (iconEl) iconEl.textContent = getWeatherIcon(currentCode);
-      if (descEl) descEl.textContent = getWeatherDesc(currentCode);
-      
-      if (rangeEl && data.daily && data.daily.temperature_2m_min && data.daily.temperature_2m_max) {
-        const minTemp = Math.round(data.daily.temperature_2m_min[0]);
-        const maxTemp = Math.round(data.daily.temperature_2m_max[0]);
-        rangeEl.textContent = `↓ ${minTemp}°C   ↑ ${maxTemp}°C`;
-      }
-
-      const currentHourStr = data.current.time;
-      const hourlyTimes = data.hourly.time;
-      const startIndex = hourlyTimes.findIndex((t: string) => t === currentHourStr) || 0;
-
-      const nextEvenForecasts: { timeLabel: string; temp: number; code: number }[] = [];
-      let searchIdx = startIndex + 1;
-      
-      while (nextEvenForecasts.length < 3 && searchIdx < hourlyTimes.length) {
-        const timeStr = hourlyTimes[searchIdx];
-        const dateObj = new Date(timeStr);
-        const hour = dateObj.getHours();
-        
-        if (hour % 2 === 0) {
-          let formattedHour = hour;
-          const ampm = formattedHour >= 12 ? 'PM' : 'AM';
-          formattedHour = formattedHour % 12;
-          formattedHour = formattedHour ? formattedHour : 12;
-          
-          nextEvenForecasts.push({
-            timeLabel: `${formattedHour} ${ampm}`,
-            temp: Math.round(data.hourly.temperature_2m[searchIdx]),
-            code: data.hourly.weather_code[searchIdx]
-          });
-        }
-        searchIdx++;
-      }
-
-      nextEvenForecasts.forEach((forecast, i) => {
-        const timeEl = document.getElementById(`forecast-time-${i}`);
-        const fIconEl = document.getElementById(`forecast-icon-${i}`);
-        const fTempEl = document.getElementById(`forecast-temp-${i}`);
-
-        if (timeEl) timeEl.textContent = forecast.timeLabel;
-        if (fIconEl) fIconEl.textContent = getWeatherIcon(forecast.code);
-        if (fTempEl) fTempEl.textContent = `${forecast.temp}°`;
-      });
+      // Persist to localStorage so fast restarts skip the network call
+      try {
+        localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(data));
+        localStorage.setItem(WEATHER_CACHE_TS, String(Date.now()));
+      } catch (_) { /* storage quota — ignore */ }
+      applyWeatherData(data);
     } catch (err) {
-      console.error('Weather fetch error:', err);
+      console.warn('Weather fetch failed, using cache or fallback:', err);
+      // Try stale cache before showing fallback
+      try {
+        const stale = localStorage.getItem(WEATHER_CACHE_KEY);
+        if (stale) { applyWeatherData(JSON.parse(stale)); return; }
+      } catch (_) { /* */ }
       useFallbackWeather();
     }
   }
 
-  // Update weather initially and every 15 minutes
+  // Update weather initially and every 20 minutes
   updateWeather();
-  setInterval(updateWeather, 15 * 60 * 1000);
+  let weatherIntervalId = setInterval(updateWeather, WEATHER_TTL_MS);
 
   // ── News Ticker (Haber Akışı) ──────────────────────────────────────────────
-  const headlines = [
-    {
-      text: "TBMM Genel Kurulu'nda yeni ekonomi ve sanayi teşvik reform paketi görüşülmeye başlandı.",
-      img: "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Yapay zeka modelleri artık insan beyninin çalışma prensiplerini taklit ediyor.",
-      img: "https://images.unsplash.com/photo-1677442136019-21780efad99a?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Dışişleri Bakanlığı, Doğu Akdeniz'deki enerji iş birliği anlaşmalarına ilişkin son durumu paylaştı.",
-      img: "https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "James Webb Teleskobu, evrenin ilk oluşum dönemine ait yeni galaksiler keşfetti.",
-      img: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Cumhurbaşkanlığı Kabinesi, bölgesel güvenlik ve dış ilişkiler gündemiyle Beştepe'de toplandı.",
-      img: "https://images.unsplash.com/photo-1590856029826-c7a73142bbf1?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Gaziantep Teknopark'ta yerli ve milli batarya teknolojileri geliştiriliyor.",
-      img: "https://images.unsplash.com/photo-1548345680-f5475ea5df84?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Türkiye ile AB arasında vize muafiyeti ve gümrük birliği güncelleme görüşmelerinde yeni tur başladı.",
-      img: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Elektrikli araç bataryalarında şarj süresini 5 dakikaya indiren yeni yöntem.",
-      img: "https://images.unsplash.com/photo-1563720223185-11003d516935?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Çevre ve Şehircilik Bakanlığı, akıllı şehir projeleri için belediyelere yeni fon desteğini açıkladı.",
-      img: "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Kuantum bilgisayarlar şifreleme algoritmalarını kırmak için yeni aşamaya geçti.",
-      img: "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Mars prototipleri için fırlatma testleri bu akşam başarıyla tamamlandı.",
-      img: "https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Gökbilimciler, güneş sistemimize en yakın yaşanabilir ötegezegeni incelemeye aldı.",
-      img: "https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Gaziantep'te dijital sanatlar ve ses görselleştirme festivali düzenleniyor.",
-      img: "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Yeni nesil füzyon reaktörü temiz enerji üretiminde rekor süreye ulaştı.",
-      img: "https://images.unsplash.com/photo-1461360370896-922624d12aa1?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Grafen tabanlı mikroçipler silikon yarı iletkenlerin yerini almaya hazırlanıyor.",
-      img: "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Nöroteknoloji şirketi Neuralink, ilk kablosuz beyin implantı testlerini sürdürüyor.",
-      img: "https://images.unsplash.com/photo-1507668077129-56e32842fceb?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Yapay zeka destekli hava durumu tahmin modelleri doğruluk oranını %96'ya çıkardı.",
-      img: "https://images.unsplash.com/photo-1534274988757-a28bf1a57c17?w=120&h=120&fit=crop&q=80"
-    },
-    {
-      text: "Gaziantep kalesinde restore edilen alanlar dijital müze konseptiyle açılıyor.",
-      img: "https://images.unsplash.com/photo-1566121318594-a4701229023c?w=120&h=120&fit=crop&q=80"
-    }
-  ];
+  // Headlines will be populated entirely by fetchRealNews() (no mock data)
+  const headlines: { text: string; img: string }[] = [];
 
-  const agendaTrends = [
-    [
-      { rank: 1, topic: "#TEKNOFEST", count: "48.2K Paylaşım" },
-      { rank: 2, topic: "Gaziantep Teknopark", count: "21.5K Paylaşım" },
-      { rank: 3, topic: "#MilliTeknolojiHamlesi", count: "19.3K Paylaşım" }
-    ],
-    [
-      { rank: 1, topic: "Yapay Zeka Modelleri", count: "34.6K Paylaşım" },
-      { rank: 2, topic: "#UzayVatan", count: "18.1K Paylaşım" },
-      { rank: 3, topic: "Yerli Otomobil", count: "16.8K Paylaşım" }
-    ],
-    [
-      { rank: 1, topic: "Kuantum Bilgisayarlar", count: "29.7K Paylaşım" },
-      { rank: 2, topic: "#SiberGüvenlik", count: "15.4K Paylaşım" },
-      { rank: 3, topic: "Dijital Sanatlar", count: "12.2K Paylaşım" }
-    ]
-  ];
+  // Agenda trends will be populated entirely by fetchRealTrends() (no mock data)
+  const agendaTrends: { rank: number; topic: string; count: string }[][] = [];
 
   let currentHeadlineIndex = 0;
   let currentAgendaIndex = 0;
@@ -506,6 +528,10 @@ document.addEventListener('DOMContentLoaded', () => {
     throw new Error(`Failed to fetch ${url} using all proxies`);
   }
 
+  // ── Cached news DOM refs ──────────────────────────────────────────────────
+  const elNewsTickerText = document.getElementById('news-ticker-text');
+  const elNewsImg        = document.getElementById('news-img') as HTMLImageElement;
+
   async function fetchRealNews() {
     try {
       const xmlText = await fetchWithFallback('https://www.trthaber.com/sondakika.rss');
@@ -517,14 +543,10 @@ document.addEventListener('DOMContentLoaded', () => {
       items.forEach(item => {
         const title = item.querySelector('title')?.textContent || '';
         let imgUrl = item.querySelector('imageUrl')?.textContent || '';
-        
         if (!imgUrl) {
           const enclosure = item.querySelector('enclosure');
-          if (enclosure) {
-            imgUrl = enclosure.getAttribute('url') || '';
-          }
+          if (enclosure) imgUrl = enclosure.getAttribute('url') || '';
         }
-        
         if (title) {
           parsedHeadlines.push({
             text: title.trim(),
@@ -536,17 +558,14 @@ document.addEventListener('DOMContentLoaded', () => {
       if (parsedHeadlines.length > 0) {
         headlines.length = 0;
         headlines.push(...parsedHeadlines);
-        
-        const textEl = document.getElementById('news-ticker-text');
-        const imgEl = document.getElementById('news-img') as HTMLImageElement;
-        if (textEl && imgEl && headlines.length > 0) {
+        if (elNewsTickerText && elNewsImg) {
           currentHeadlineIndex = 0;
-          textEl.textContent = headlines[0].text;
-          imgEl.src = headlines[0].img;
+          elNewsTickerText.textContent = headlines[0].text;
+          elNewsImg.src = headlines[0].img;
         }
       }
     } catch (err) {
-      console.error('Real news fetch failed, using fallback headlines:', err);
+      console.warn('Real news fetch failed, using fallback headlines:', err);
     }
   }
 
@@ -702,41 +721,99 @@ document.addEventListener('DOMContentLoaded', () => {
     updateFinanceUI(financeRates);
   }
 
-  // Load real-time data on initialization
+  // ── Real-time data init ────────────────────────────────────────────────────
   fetchRealNews();
   fetchRealTrends();
   fetchFinanceRates();
 
-  // Refresh news & trends every 10 minutes
-  setInterval(() => {
+  // Refresh timers — stored so Page Visibility API can pause/resume them
+  let newsIntervalId: ReturnType<typeof setInterval>;
+  let financeIntervalId: ReturnType<typeof setInterval>;
+  let newsTickerIntervalId: ReturnType<typeof setInterval>;
+
+  function startDataIntervals() {
+    newsIntervalId       = setInterval(() => { fetchRealNews(); fetchRealTrends(); }, 10 * 60 * 1000);
+    financeIntervalId    = setInterval(fetchFinanceRates, 60 * 1000);
+    newsTickerIntervalId = setInterval(cycleNews, 6000);
+  }
+  startDataIntervals();
+
+  // ── Page Visibility API — pause everything when tab/window is hidden ────────
+  const financeScrollEl = document.querySelector('.finance-scroll') as HTMLElement | null;
+
+  function pauseBackgroundWork() {
+    clearInterval(newsIntervalId);
+    clearInterval(financeIntervalId);
+    clearInterval(newsTickerIntervalId);
+    clearInterval(weatherIntervalId);
+    stopStatsPolling();
+    // Pause the CSS scroll animation to free GPU
+    if (financeScrollEl) financeScrollEl.style.animationPlayState = 'paused';
+  }
+
+  function resumeBackgroundWork() {
+    // Immediately refresh stale data then restart intervals
     fetchRealNews();
     fetchRealTrends();
-  }, 10 * 60 * 1000);
-
-  // Refresh finance rates every 1 minute
-  setInterval(fetchFinanceRates, 60 * 1000);
-
-  // Cycle news headlines every 6 seconds
-  setInterval(cycleNews, 6000);
-
-  // ── Stats panel (decoupled from render loop) ───────────────────────────────
-  function updateStats() {
-    const { bass, mid, high, vol, pitch } = visualizer.stats;
-    barBass.style.width = `${bass * 100}%`;
-    barMid.style.width  = `${mid  * 100}%`;
-    barHigh.style.width = `${high * 100}%`;
-
-    // Scale pitch (80Hz to 1200Hz human range)
-    const pitchPct = Math.min(1, Math.max(0, (pitch - 80) / 1120));
-    barFreq.style.width = `${pitchPct * 100}%`;
-
-    barVol.style.width  = `${vol  * 100}%`;
-    txtBass.textContent  = bass.toFixed(2);
-    txtMid.textContent   = mid.toFixed(2);
-    txtHigh.textContent  = high.toFixed(2);
-    txtFreq.textContent  = pitch > 0 ? `${Math.round(pitch)} Hz` : '0 Hz';
-    txtVol.textContent   = vol.toFixed(2);
-    requestAnimationFrame(updateStats);
+    fetchFinanceRates();
+    updateWeather();
+    newsIntervalId    = setInterval(() => { fetchRealNews(); fetchRealTrends(); }, 10 * 60 * 1000);
+    financeIntervalId = setInterval(fetchFinanceRates, 60 * 1000);
+    newsTickerIntervalId = setInterval(cycleNews, 6000);
+    weatherIntervalId = setInterval(updateWeather, WEATHER_TTL_MS);
+    if (financeScrollEl) financeScrollEl.style.animationPlayState = 'running';
+    startStatsPolling();
   }
-  updateStats();
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      pauseBackgroundWork();
+    } else {
+      resumeBackgroundWork();
+    }
+  });
+
+  // ── Stats panel — setInterval at 80ms (~12fps) instead of full RAF loop ───
+  // Decouples stats DOM writes from the 60fps canvas loop. Auto-pauses when
+  // UI is collapsed or page is hidden, saving CPU on Raspberry Pi.
+  let statsIntervalId: ReturnType<typeof setInterval> | null = null;
+
+  function updateStats() {
+    if (document.body.classList.contains('ui-collapsed')) return;
+    if (document.hidden) return;
+
+    const { bass, mid, high, vol, pitch } = visualizer.stats;
+    barBass.style.width = `${(bass * 100).toFixed(1)}%`;
+    barMid.style.width  = `${(mid  * 100).toFixed(1)}%`;
+    barHigh.style.width = `${(high * 100).toFixed(1)}%`;
+    barFreq.style.width = `${(Math.min(1, Math.max(0, (pitch - 80) / 1120)) * 100).toFixed(1)}%`;
+    barVol.style.width  = `${(vol  * 100).toFixed(1)}%`;
+    txtBass.textContent = bass.toFixed(2);
+    txtMid.textContent  = mid.toFixed(2);
+    txtHigh.textContent = high.toFixed(2);
+    txtFreq.textContent = pitch > 0 ? `${Math.round(pitch)} Hz` : '0 Hz';
+    txtVol.textContent  = vol.toFixed(2);
+  }
+
+  function startStatsPolling() {
+    if (statsIntervalId !== null) return;
+    statsIntervalId = setInterval(updateStats, 80);
+  }
+  function stopStatsPolling() {
+    if (statsIntervalId !== null) { clearInterval(statsIntervalId); statsIntervalId = null; }
+  }
+
+  // Pause stats when UI collapses (saves 12 DOM updates/sec when watching visuals)
+  btnToggleUI.addEventListener('click', () => {
+    requestAnimationFrame(() => {
+      if (document.body.classList.contains('ui-collapsed')) {
+        stopStatsPolling();
+      } else {
+        startStatsPolling();
+      }
+    });
+  });
+
+  startStatsPolling();
 });
+

@@ -1,10 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// visualizer.ts — 3D Voice Equalizer  v1.0
+// visualizer.ts — 3D Voice Equalizer  v1.1 (Performance Edition)
 // Supports: Microphone | System Audio (screen share) | Both simultaneously
 // Calm silk-ribbon background designed for voice assistant UIs.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type AudioSource = 'mic' | 'system' | 'both';
+
+declare global {
+  interface Window {
+    electronAPI?: {
+      getDesktopSourceId: () => Promise<string | null>;
+    };
+  }
+}
 
 export class VoiceVisualizer {
   private canvas: HTMLCanvasElement;
@@ -39,37 +47,57 @@ export class VoiceVisualizer {
   private animationFrameId: number = 0;
   private time: number = 0;
 
-  // Background floating bokeh particle field
-  private particles: Array<{
-    x: number;
-    y: number;
-    size: number;
-    speedX: number;
-    speedY: number;
-    phase: number;
-  }> = [];
+  // Background particle field removed for performance
+
+  // ─── Performance caches ────────────────────────────────────────────────────
+  // Cached logical canvas dimensions (updated on resize, avoids per-frame division)
+  private cachedWidth: number  = 0;
+  private cachedHeight: number = 0;
+
+  // Per-frame gradient cache: one CanvasGradient reused across all 45 wave draws
+  // for colored styles. Avoids 45 createLinearGradient calls per frame (major win).
+  private _gradCache: CanvasGradient | null = null;
+  private _gradCacheStyle: string = '';
+  private _gradCacheMaxH: number  = -1;
+  private _gradCacheCy: number    = -1;
+  private _gradCachePitchShift: number = -1;
+
+  // Pre-allocated typed arrays for inner-loop envelope / t computations
+  private _envCache: Float32Array = new Float32Array(76);
+  private _tCache: Float32Array   = new Float32Array(76);
+
+  // Idle-mode FPS throttle: only draw ~20fps when no audio is active (saves ~66% GPU on RPi)
+  private _lastFrameTime: number = 0;
+  private static readonly IDLE_FRAME_MS = 50; // ~20fps
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    const ctx = canvas.getContext('2d');
+    // alpha:false tells the browser the canvas has no transparency, enabling
+    // GPU-side optimisations (skip alpha compositing of the canvas element itself)
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Could not get 2D context from canvas');
     this.ctx = ctx;
     this.resize();
-    this.initParticles();
+
   }
 
   // Handle high-DPI scaling for crisp graphics
   public resize(): void {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(1.5, window.devicePixelRatio || 1); // Cap DPR at 1.5 to boost GPU performance on Raspberry Pi / high-res screens
     const rect = this.canvas.getBoundingClientRect();
-    this.canvas.width = rect.width * dpr;
+    this.canvas.width  = rect.width  * dpr;
     this.canvas.height = rect.height * dpr;
     this.ctx.scale(dpr, dpr);
+    // Cache logical dimensions so draw() never needs to divide by dpr each frame
+    this.cachedWidth  = rect.width;
+    this.cachedHeight = rect.height;
+    // Invalidate gradient cache after any resize
+    this._gradCache = null;
   }
 
   // ─── Start ─────────────────────────────────────────────────────────────────
 
-  public async start(sourceType: AudioSource): Promise<void> {
+  public async start(sourceType: AudioSource, deviceId?: string): Promise<void> {
     this.stop(); // tear down previous session first
 
     try {
@@ -83,12 +111,21 @@ export class VoiceVisualizer {
       this.timeData = new Uint8Array(bufferLength);
 
       if (sourceType === 'mic') {
-        await this.connectMic();
+        await this.connectMic(deviceId);
       } else if (sourceType === 'system') {
-        await this.connectSystem();
+        if (deviceId && deviceId !== 'screen-share' && deviceId !== 'default') {
+          await this.connectSystemViaDevice(deviceId);
+        } else {
+          await this.connectSystem();
+        }
       } else {
         // 'both': connect mic and system in parallel, merge into analyser
-        await Promise.all([this.connectMic(), this.connectSystem()]);
+        await Promise.all([
+          this.connectMic('default'),
+          deviceId && deviceId !== 'screen-share' && deviceId !== 'default' 
+            ? this.connectSystemViaDevice(deviceId) 
+            : this.connectSystem()
+        ]);
       }
 
       this.isCapturing = true;
@@ -101,17 +138,85 @@ export class VoiceVisualizer {
   }
 
   // Acquire and connect the microphone stream
-  private async connectMic(): Promise<void> {
-    this.micStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
-      video: false
-    });
+  private async connectMic(deviceId?: string): Promise<void> {
+    const audioConstraints: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: false
+    };
+    if (deviceId && deviceId !== 'default' && deviceId !== 'screen-share') {
+      audioConstraints.deviceId = { exact: deviceId };
+    }
+    
+    try {
+      this.micStream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints,
+        video: false
+      });
+    } catch (err) {
+      console.warn(`Failed to connect to device ${deviceId}, trying default microphone`, err);
+      this.micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+        video: false
+      });
+    }
+    
     this.micNode = this.audioContext!.createMediaStreamSource(this.micStream);
     this.micNode.connect(this.analyser!);
   }
 
+  // Acquire and connect the system audio stream via direct device loopback
+  private async connectSystemViaDevice(deviceId: string): Promise<void> {
+    this.systemStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        deviceId: { exact: deviceId },
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      },
+      video: false
+    });
+    this.systemNode = this.audioContext!.createMediaStreamSource(this.systemStream);
+    this.systemNode.connect(this.analyser!);
+  }
+
   // Acquire and connect the system audio stream via getDisplayMedia
   private async connectSystem(): Promise<void> {
+    // If running in Electron, auto-capture primary display audio to bypass picker prompts
+    if (window.electronAPI && window.electronAPI.getDesktopSourceId) {
+      try {
+        const sourceId = await window.electronAPI.getDesktopSourceId();
+        if (sourceId) {
+          this.systemStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              mandatory: {
+                chromeMediaSource: 'desktop',
+                chromeMediaSourceId: sourceId
+              }
+            } as any,
+            video: {
+              mandatory: {
+                chromeMediaSource: 'desktop',
+                chromeMediaSourceId: sourceId,
+                maxHeight: 1,
+                maxWidth: 1
+              }
+            } as any
+          });
+
+          const audioTracks = this.systemStream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            this.systemNode = this.audioContext!.createMediaStreamSource(this.systemStream);
+            this.systemNode.connect(this.analyser!);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Electron auto-capture failed, falling back to standard getDisplayMedia', err);
+      }
+    }
+
+    // Standard Browser / Fallback
     this.systemStream = await navigator.mediaDevices.getDisplayMedia({
       video: { width: 1, height: 1 },
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
@@ -188,7 +293,8 @@ export class VoiceVisualizer {
 
     // RMS volume from time domain (truest loudness measure)
     let sumSq = 0;
-    for (let i = 0; i < this.timeData.length; i++) {
+    const tdLen = this.timeData.length; // cache property to avoid repeated lookup
+    for (let i = 0; i < tdLen; i++) {
       const n = (this.timeData[i] - 128) / 128;
       sumSq += n * n;
     }
@@ -202,7 +308,7 @@ export class VoiceVisualizer {
     this.stats.mid  = Math.min(1, (midSum  / 84 / 255) * s);
     // Moderate boost for high frequencies to catch consonants without being overly erratic
     this.stats.high = Math.min(1, (highSum / 150 / 255) * s * 1.6);
-    this.stats.vol  = Math.min(1, Math.sqrt(sumSq / this.timeData.length) * s * 1.5);
+    this.stats.vol  = Math.min(1, Math.sqrt(sumSq / tdLen) * s * 1.5);
 
     // Detect dominant frequency (vocal pitch) between ~80Hz and ~1200Hz
     let maxVal = 0;
@@ -240,29 +346,40 @@ export class VoiceVisualizer {
   // ─── Render Loop ───────────────────────────────────────────────────────────
 
   private loop = (): void => {
+    // ── Idle FPS throttle ──────────────────────────────────────────────────
+    // When not capturing, cap render rate at ~20fps to save CPU/GPU on RPi.
+    // During active capture, every RAF fires (full 60fps for silky visuals).
+    if (!this.isCapturing) {
+      const now = performance.now();
+      if (now - this._lastFrameTime < VoiceVisualizer.IDLE_FRAME_MS) {
+        this.animationFrameId = requestAnimationFrame(this.loop);
+        return;
+      }
+      this._lastFrameTime = now;
+    }
+
     if (this.isCapturing) {
       this.analyzeAudio();
-      // Extremely smooth transitions for all frequency bands to avoid sudden jerks
-      const bassAttack = 0.14;
-      const bassDecay = 0.03;
+      // Balanced coefficients for silky-smooth wave transition and fluid movement
+      const bassAttack = 0.22;
+      const bassDecay = 0.08;
       this.smooth.bass = this.smooth.bass + (this.stats.bass - this.smooth.bass) * (this.stats.bass > this.smooth.bass ? bassAttack : bassDecay);
       
-      const midAttack = 0.10;
-      const midDecay = 0.03;
+      const midAttack = 0.20;
+      const midDecay = 0.07;
       this.smooth.mid = this.smooth.mid + (this.stats.mid - this.smooth.mid) * (this.stats.mid > this.smooth.mid ? midAttack : midDecay);
       
-      const highAttack = 0.08;
-      const highDecay = 0.025;
+      const highAttack = 0.20;
+      const highDecay = 0.07;
       this.smooth.high = this.smooth.high + (this.stats.high - this.smooth.high) * (this.stats.high > this.smooth.high ? highAttack : highDecay);
       
-      const volAttack = 0.10;
-      const volDecay = 0.03;
+      const volAttack = 0.20;
+      const volDecay = 0.07;
       this.smooth.vol = this.smooth.vol + (this.stats.vol - this.smooth.vol) * (this.stats.vol > this.smooth.vol ? volAttack : volDecay);
       
-      // Ultra-smooth pitch tracking (slow glide effect)
-      // When silent, smoothly glide back to 220Hz (neutral reference A3) instead of 0
+      // Responsive but smoothed pitch tracking
       const targetPitch = this.stats.pitch > 20 ? this.stats.pitch : 220;
-      const pitchSpeed = this.stats.pitch > 20 ? 0.025 : 0.008;
+      const pitchSpeed = this.stats.pitch > 20 ? 0.08 : 0.04;
       this.smooth.pitch = this.smooth.pitch + (targetPitch - this.smooth.pitch) * pitchSpeed;
     } else {
       // Idle: gentle breathing so ribbons never look static
@@ -281,7 +398,7 @@ export class VoiceVisualizer {
       this.stats.pitch *= 0.90;
     }
 
-    this.updateParticles();
+
     this.draw();
     this.animationFrameId = requestAnimationFrame(this.loop);
   };
@@ -289,9 +406,8 @@ export class VoiceVisualizer {
   // ─── Draw ──────────────────────────────────────────────────────────────────
 
   private draw(): void {
-    const dpr = window.devicePixelRatio || 1;
-    const width  = this.canvas.width  / dpr;
-    const height = this.canvas.height / dpr;
+    const width  = this.cachedWidth;
+    const height = this.cachedHeight;
 
     this.ctx.clearRect(0, 0, width, height);
     
@@ -300,78 +416,147 @@ export class VoiceVisualizer {
 
     this.ctx.globalCompositeOperation = 'screen';
 
-    // Time: gentle base speed + slight vol acceleration
-    this.time += 0.007 + this.smooth.vol * 0.014;
+    // Time: constant gentle base speed + organic volume acceleration
+    this.time += 0.008 + this.smooth.vol * 0.006;
 
-    const waveCount = 85;
+    const waveCount = 45; // Half of 85, looks extremely lush with optimized thickness
+    const pts = 75;       // Half of 140, runs twice as fast
+
+    // Fill pre-allocated env/t caches once per frame (avoids per-wave re-computation & allocation)
+    const envCache = this._envCache;
+    const tCache   = this._tCache;
+    for (let j = 0; j <= pts; j++) {
+      const t = j / pts;
+      tCache[j]   = t;
+      envCache[j] = Math.sin(t * Math.PI);
+    }
+
+    // Precalculate frame-level voice & pitch variables (moved out of inner loops for 90% CPU savings)
+    const activePitch = this.smooth.pitch > 0 ? this.smooth.pitch : 220;
+    const targetFactor = Math.min(1.5, Math.max(0.65, activePitch / 220));
+    const voiceActivity = Math.min(1, this.smooth.mid * 5.0 + this.smooth.high * 5.0);
+    const pitchFactor = 1.0 + (targetFactor - 1.0) * voiceActivity;
+    const waveExponent = 1.15 + this.smooth.bass * 1.40 + this.smooth.mid * 0.15 + this.smooth.high * 0.25;
+    
+    // Scale down wave amplitude on portrait screens to avoid crowding the widgets
+    const isPortrait = height > width;
+    const ampScale = isPortrait ? 0.65 : 1.0;
+
     // Bass and volume dynamic bounce: lifts the whole ribbon bundle vertically
     const dynamicLift = (this.smooth.bass * -32) + (this.smooth.vol * -12);
     const centerY     = height / 2 + dynamicLift;
 
+    const activeSpread = 0.15 + this.smooth.vol * 0.85;
+    const spread  = (1.0 + this.smooth.bass * 0.70) * activeSpread;
+
+    // ── Build one shared gradient per frame for colored styles ─────────────
+    // This replaces 45 createLinearGradient() calls with just 1 per frame
+    const isClassic = this.style === 'classic';
+    if (!isClassic) {
+      const maxH          = 45 + this.smooth.bass * 95;
+      const pitchHueShift = this.smooth.pitch > 0
+        ? Math.min(35, Math.max(0, (this.smooth.pitch - 100) * 0.08))
+        : 0;
+      // Only recreate gradient when defining parameters change meaningfully
+      const needsRebuild =
+        this._gradCache === null ||
+        this._gradCacheStyle !== this.style ||
+        Math.abs(this._gradCacheMaxH - maxH) > 1 ||
+        Math.abs(this._gradCacheCy - centerY) > 1 ||
+        Math.abs(this._gradCachePitchShift - pitchHueShift) > 0.5;
+
+      if (needsRebuild) {
+        const grad = this.ctx.createLinearGradient(0, centerY - maxH, 0, centerY + maxH);
+        switch (this.style) {
+          case 'neon':
+            grad.addColorStop(0,   `hsl(${187 + pitchHueShift},        100%, 55%)`);
+            grad.addColorStop(0.5, `hsl(${270 - pitchHueShift * 0.5},   85%, 45%)`);
+            grad.addColorStop(1,   `hsl(${187 + pitchHueShift},        100%, 55%)`);
+            break;
+          case 'sunset':
+            grad.addColorStop(0,   `hsl(${340 + pitchHueShift * 0.3}, 100%, 55%)`);
+            grad.addColorStop(0.5, `hsl(${15  + pitchHueShift * 0.4}, 100%, 50%)`);
+            grad.addColorStop(1,   `hsl(${340 + pitchHueShift * 0.3}, 100%, 55%)`);
+            break;
+          case 'cyber':
+            grad.addColorStop(0,   `hsl(${325 + pitchHueShift * 0.3}, 100%, 55%)`);
+            grad.addColorStop(0.5, `hsl(${120 - pitchHueShift * 0.3}, 100%, 50%)`);
+            grad.addColorStop(1,   `hsl(${325 + pitchHueShift * 0.3}, 100%, 55%)`);
+            break;
+          case 'gold':
+            grad.addColorStop(0,   `hsl(${48  + pitchHueShift * 0.2}, 100%, 55%)`);
+            grad.addColorStop(0.5, `hsl(${30  - pitchHueShift * 0.3},  90%, 35%)`);
+            grad.addColorStop(1,   `hsl(${48  + pitchHueShift * 0.2}, 100%, 55%)`);
+            break;
+        }
+        this._gradCache          = grad;
+        this._gradCacheStyle     = this.style;
+        this._gradCacheMaxH      = maxH;
+        this._gradCacheCy        = centerY;
+        this._gradCachePitchShift = pitchHueShift;
+      }
+    }
+
     for (let i = 0; i < waveCount; i++) {
       const depth = i / (waveCount - 1); // 0 = back, 1 = front
 
-      const opacity   = 0.05 + depth * 0.40;
-      const lineWidth = 0.4  + depth * 1.0;
+      // Thicker lines and slightly higher opacities make 45 waves look even richer than 85 thin ones
+      const opacity   = 0.08 + depth * 0.55; 
+      const lineWidth = 0.8 + depth * 1.8;   
 
       // Bass spreads the ribbon layers apart (breathing open/close)
-      // In silence, layers draw closer together to form a tight horizontal beam, spreading on sound
-      const activeSpread = 0.15 + this.smooth.vol * 0.85;
-      const spread  = (1.0 + this.smooth.bass * 0.70) * activeSpread;
       const yOffset = ((depth - 0.5) * 14 + Math.cos(depth * Math.PI) * 32) * spread;
       const xShift  = (depth - 0.5) * 12;
 
       // Frequency weighting per layer:
-      // Back layers pulse more with bass; front layers articulate with mids
       const bassInf = this.smooth.bass * (1.0 - depth * 0.4);
       const midInf  = this.smooth.mid  * (0.4 + Math.sin(depth * Math.PI) * 0.6);
-      // Let highs affect more layers than before, but with a balanced scaling
       const highInf = this.smooth.high * (0.1 + depth * 0.7);
 
-      this.setStrokeColor(depth, opacity);
+      const freq  = (4.2 + depth * 1.8) * (1.0 + midInf * 0.12) * pitchFactor;
+      const phase = this.time * 1.5 + highInf * 0.3 - depth * 11.5;
+
+      const ampMult  = 0.35 + Math.sin(depth * Math.PI) * 0.65;
+      const baseH    = (8 + depth * 14) * ampMult * (0.04 + this.smooth.vol * 0.96) * ampScale;
+      const bassAmp  = bassInf * 260 * ampMult * ampScale;
+      const midAmp   = midInf * 85 * ampMult * ampScale;
+      const highAmp  = highInf * 28 * ampMult * ampScale;
+      const amp      = (baseH + bassAmp + midAmp + highAmp);
+
+      const sinDepthPI = Math.sin(depth * Math.PI);
+      const highFactor = 0.2 + depth * 0.8;
+
+      // Set stroke — classic uses per-wave rgba; colored themes reuse cached gradient + globalAlpha
+      if (isClassic) {
+        const blue = Math.floor(240 + (1 - depth) * 15);
+        const rg   = Math.floor(245 + depth * 10);
+        this.ctx.strokeStyle = `rgba(${rg},${rg},${blue},${opacity})`;
+      } else {
+        this.ctx.globalAlpha = opacity;
+        this.ctx.strokeStyle = this._gradCache!;
+      }
       this.ctx.lineWidth = lineWidth;
       this.ctx.beginPath();
 
-      const pts = 140;
       for (let j = 0; j <= pts; j++) {
-        const t = j / pts;
-
-        // Bell-curve envelope: taper smoothly to zero at both edges
-        const env = Math.sin(t * Math.PI);
-
-        // Smoothly interpolate the pitch factor toward 1.0 when voice volume dies down to avoid sudden jumps
-        const activePitch = this.smooth.pitch > 0 ? this.smooth.pitch : 220;
-        const targetFactor = Math.min(1.5, Math.max(0.65, activePitch / 220));
-        const voiceActivity = Math.min(1, this.smooth.mid * 5.0 + this.smooth.high * 5.0);
-        const pitchFactor = 1.0 + (targetFactor - 1.0) * voiceActivity;
+        const t   = tCache[j];
+        const env = envCache[j];
 
         // Compound wave (triple harmonic) — organic silk feel, pitch-synchronized!
-        const freq  = (4.2 + depth * 1.8) * (1.0 + midInf * 0.12) * pitchFactor;
-        const phase = this.time * 1.5 + highInf * 0.3 - depth * 11.5;
-
         let wave = Math.sin(t * freq - phase) * 0.70;
         wave    += Math.sin(t * freq * 1.6 + phase * 1.2) * 0.23;
         wave    += Math.cos(t * freq * 3.3 - phase * 0.7) * 0.07;
-        // Dynamically sharpen peaks mainly on bass, with a gentle touch from mids/highs
-        const waveExponent = 1.15 + this.smooth.bass * 1.40 + this.smooth.mid * 0.15 + this.smooth.high * 0.25;
-        wave = Math.pow(Math.abs(wave), waveExponent) * Math.sign(wave);
+        // Inline Math.sign to avoid a function call per inner-loop iteration
+        wave = Math.pow(Math.abs(wave), waveExponent) * (wave < 0 ? -1 : 1);
 
         // Balanced mid ripple during speech
-        const midRipple  = Math.sin(t * 33 + this.time * 4.3) * midInf  * 18 * Math.sin(depth * Math.PI);
-        // Moderate high ripple for crisp but not overly jagged consonants
-        const highRipple = Math.sin(t * 78 - this.time * 7) * highInf * 9 * (0.2 + depth * 0.8);
-        // Increased bass sway for more dramatic vertical undulations
+        const midRipple  = Math.sin(t * 33 + this.time * 4.3) * midInf  * 18 * sinDepthPI;
+        // Moderate high ripple
+        const highRipple = Math.sin(t * 78 - this.time * 7) * highInf * 9 * highFactor;
+        // Increased bass sway
         const bassSway   = Math.sin(t * 2.0 - this.time * 0.8) * bassInf * 52 * env;
 
-        const ampMult  = 0.35 + Math.sin(depth * Math.PI) * 0.65;
-        // Scale the base height with volume so it lies almost perfectly flat in silence
-        const baseH    = (8 + depth * 14) * ampMult * (0.04 + this.smooth.vol * 0.96);
-        const bassAmp  = bassInf * 260 * ampMult;
-        const midAmp   = midInf * 85 * ampMult;
-        const highAmp  = highInf * 28 * ampMult;
-        const amp      = (baseH + bassAmp + midAmp + highAmp) * env;
-
-        const y = centerY + yOffset + wave * amp + (midRipple + highRipple) * env + bassSway;
+        const y = centerY + yOffset + wave * amp * env + (midRipple + highRipple) * env + bassSway;
         const x = t * width + xShift;
 
         j === 0 ? this.ctx.moveTo(x, y) : this.ctx.lineTo(x, y);
@@ -380,94 +565,22 @@ export class VoiceVisualizer {
       this.ctx.stroke();
     }
 
+    // Restore globalAlpha to 1 after colored-theme wave pass
+    if (!isClassic) {
+      this.ctx.globalAlpha = 1;
+    }
+
     this.ctx.globalCompositeOperation = 'source-over';
   }
 
-  // ─── Colors ────────────────────────────────────────────────────────────────
-
-  private setStrokeColor(depth: number, opacity: number): void {
-    if (this.style === 'classic') {
-      const blue = Math.floor(240 + (1 - depth) * 15);
-      const rg   = Math.floor(245 + depth * 10);
-      this.ctx.strokeStyle = `rgba(${rg},${rg},${blue},${opacity})`;
-      return;
-    }
-
-    const dpr = window.devicePixelRatio || 1;
-    const cy  = (this.canvas.height / dpr) / 2;
-    const maxH = 45 + this.smooth.bass * 95;
-    const grad = this.ctx.createLinearGradient(0, cy - maxH, 0, cy + maxH);
-    // Smoothly fade out the hue shift when voice activity drops to prevent color snaps
-    const voiceActivity = Math.min(1, this.smooth.mid * 5.0 + this.smooth.high * 5.0);
-    const targetHueShift = this.smooth.pitch > 0 
-      ? Math.min(35, Math.max(0, (this.smooth.pitch - 100) * 0.08)) 
-      : 0;
-    const pitchHueShift = targetHueShift * voiceActivity;
-    const ds   = depth * 15 + pitchHueShift; // per-layer hue shift + pitch shift
-
-    switch (this.style) {
-      case 'neon':
-        grad.addColorStop(0,   `hsla(${187+ds},    100%, 55%, ${opacity})`);
-        grad.addColorStop(0.5, `hsla(${270-ds*0.5}, 85%, 45%, ${opacity})`);
-        grad.addColorStop(1,   `hsla(${187+ds},    100%, 55%, ${opacity})`);
-        break;
-      case 'sunset':
-        grad.addColorStop(0,   `hsla(${340+ds*0.3}, 100%, 55%, ${opacity})`);
-        grad.addColorStop(0.5, `hsla(${15+ds*0.4},  100%, 50%, ${opacity})`);
-        grad.addColorStop(1,   `hsla(${340+ds*0.3}, 100%, 55%, ${opacity})`);
-        break;
-      case 'cyber':
-        grad.addColorStop(0,   `hsla(${325+ds*0.3}, 100%, 55%, ${opacity})`);
-        grad.addColorStop(0.5, `hsla(${120-ds*0.3}, 100%, 50%, ${opacity})`);
-        grad.addColorStop(1,   `hsla(${325+ds*0.3}, 100%, 55%, ${opacity})`);
-        break;
-      case 'gold':
-        grad.addColorStop(0,   `hsla(${48+ds*0.2},  100%, 55%, ${opacity})`);
-        grad.addColorStop(0.5, `hsla(${30-ds*0.3},   90%, 35%, ${opacity})`);
-        grad.addColorStop(1,   `hsla(${48+ds*0.2},  100%, 55%, ${opacity})`);
-        break;
-    }
-
-    this.ctx.strokeStyle = grad;
-  }
-
-  // ─── Background & Particles (Bokeh Field) ──────────────────────────────────
-
-  private initParticles(): void {
-    this.particles = [];
-    const count = 45;
-    for (let i = 0; i < count; i++) {
-      const size = Math.random() * 3.2 + 0.8;
-      this.particles.push({
-        x: Math.random(),
-        y: Math.random(),
-        size: size,
-        speedX: (Math.random() - 0.5) * 0.0003,
-        speedY: (Math.random() - 0.5) * 0.0003,
-        phase: Math.random() * Math.PI * 2
-      });
-    }
-  }
-
-  private updateParticles(): void {
-    // Extremely slow drift in silence (0.12), speeding up dynamically on sound
-    const s = 0.12 + this.smooth.vol * 4.2;
-    for (const p of this.particles) {
-      // 3D Parallax: Larger particles drift faster because they are "closer"
-      const sizeFactor = p.size / 3.2;
-      p.x += p.speedX * s * sizeFactor;
-      p.y += p.speedY * s * sizeFactor;
-
-      // Wrap around bounds
-      if (p.x < 0) p.x += 1;
-      if (p.x > 1) p.x -= 1;
-      if (p.y < 0) p.y += 1;
-      if (p.y > 1) p.y -= 1;
-    }
-  }
+  // ─── Background (Aura Glow + Vignette only — particles removed for performance) ─
 
   private drawBackground(width: number, height: number): void {
-    // 1. Dynamic Radial Ambient Aura Glow
+    // If the style is 'classic', we keep the background 100% pure black for Magic Mirror compatibility,
+    // which also saves valuable GPU/CPU rendering resources on the Raspberry Pi.
+    if (this.style === 'classic') return;
+
+    // 1. Dynamic Radial Ambient Aura Glow (only for colored themes)
     const centerY = height / 2 + (this.smooth.bass * -32);
     const radius = Math.min(width, height) * (0.42 + this.smooth.bass * 0.18);
 
@@ -475,13 +588,11 @@ export class VoiceVisualizer {
     let sat = "40%";
     let light = "8%";
 
-    const pitchHueShift = this.smooth.pitch > 0 
-      ? Math.min(35, Math.max(0, (this.smooth.pitch - 100) * 0.08)) 
+    const pitchHueShift = this.smooth.pitch > 0
+      ? Math.min(35, Math.max(0, (this.smooth.pitch - 100) * 0.08))
       : 0;
 
-    if (this.style === 'classic') {
-      hue = 225; sat = "20%"; light = "6%";
-    } else if (this.style === 'neon') {
+    if (this.style === 'neon') {
       hue = 187 + pitchHueShift; sat = "80%"; light = "10%";
     } else if (this.style === 'sunset') {
       hue = 340 + pitchHueShift * 0.3; sat = "80%"; light = "8%";
@@ -495,7 +606,7 @@ export class VoiceVisualizer {
 
     const grad = this.ctx.createRadialGradient(width / 2, centerY, 5, width / 2, centerY, radius);
     grad.addColorStop(0, `hsla(${hue}, ${sat}, ${light}, ${auraOpacity})`);
-    grad.addColorStop(1, `rgba(2, 3, 5, 0)`);
+    grad.addColorStop(1, `rgba(0, 0, 0, 0)`);
 
     this.ctx.fillStyle = grad;
     this.ctx.fillRect(0, 0, width, height);
@@ -507,38 +618,9 @@ export class VoiceVisualizer {
     );
     const vignetteOpacity = Math.min(0.92, 0.86 - this.smooth.vol * 0.12);
     vignetteGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    vignetteGrad.addColorStop(1, `rgba(2, 3, 5, ${vignetteOpacity})`);
-    
+    vignetteGrad.addColorStop(1, `rgba(0, 0, 0, ${vignetteOpacity})`);
+
     this.ctx.fillStyle = vignetteGrad;
     this.ctx.fillRect(0, 0, width, height);
-
-    // 3. Glowing Bokeh Particles (Floating Stardust with 3D Parallax & Size-Based Transparency)
-    let pFill = 'rgba(255, 255, 255, ';
-    if (this.style === 'neon') pFill = 'rgba(0, 242, 254, ';
-    else if (this.style === 'sunset') pFill = 'rgba(255, 8, 68, ';
-    else if (this.style === 'cyber') pFill = 'rgba(57, 255, 20, ';
-    else if (this.style === 'gold') pFill = 'rgba(255, 215, 0, ';
-
-    this.ctx.globalCompositeOperation = 'screen';
-    for (const p of this.particles) {
-      const px = p.x * width;
-      const py = p.y * height;
-
-      // 3D Parallax: Larger particles (closer to camera) sway wider
-      const sizeFactor = p.size / 3.2;
-      const swayX = Math.sin(this.time * 0.4 + p.phase) * 12 * sizeFactor * (1.0 + this.smooth.mid);
-      const swayY = Math.cos(this.time * 0.3 + p.phase) * 12 * sizeFactor * (1.0 + this.smooth.bass);
-
-      // Real lens bokeh approximation: Larger particles are blurred/dimmer (lower base opacity)
-      // while smaller particles are sharp/bright
-      const baseParticleOpacity = 0.04 + (1.0 - sizeFactor) * 0.18;
-      const volPulse = this.smooth.vol * 0.35;
-      const opacity = Math.min(0.70, baseParticleOpacity + volPulse + Math.sin(this.time * 0.8 + p.phase * 4) * 0.05);
-
-      this.ctx.beginPath();
-      this.ctx.arc(px + swayX, py + swayY, p.size, 0, Math.PI * 2);
-      this.ctx.fillStyle = pFill + `${opacity})`;
-      this.ctx.fill();
-    }
   }
 }

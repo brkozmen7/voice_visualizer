@@ -6,12 +6,14 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Özel Gerçek Zamanlı Ses Görselleştirici" />
+  <meta name="theme-color" content="#000000" />
   <title>Voice Visualizer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
-    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@300;400;600&display=swap"
-    rel="stylesheet">
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@100;200;300;400;500;600;800&family=JetBrains+Mono:wght@300;400;600&display=swap"
+    rel="stylesheet"
+    media="print" onload="this.media='all'">
 </head>
 
 <body>
@@ -29,34 +31,33 @@
     <!-- Weather Gaziantep -->
     <div class="widget-section weather-section">
       <div class="weather-current">
-        <div class="weather-header">
-          <span class="city-name">Gaziantep</span>
-          <span id="weather-desc" class="weather-desc">Hava durumu yükleniyor...</span>
-          <span id="weather-range" class="weather-range">↓ --°  ↑ --°</span>
+        <!-- Top row: Wind & Sunset/Sunrise -->
+        <div class="weather-meta-row">
+          <span class="weather-meta-item">
+            <span id="weather-wind-icon" class="meta-icon"></span>
+            <span id="weather-wind-info" class="meta-val">-- km/s ---</span>
+          </span>
+          <span class="weather-meta-item">
+            <span id="weather-sun-icon" class="meta-icon"></span>
+            <span id="weather-sun-time" class="meta-val">--:--</span>
+          </span>
         </div>
-        <div class="weather-temp-container">
+
+        <!-- Middle row: Main temp + Icon -->
+        <div class="weather-main-row">
           <span id="weather-icon" class="current-icon">☀️</span>
-          <span id="weather-temp" class="current-temp">--°C</span>
+          <span id="weather-temp" class="current-temp">--.-°</span>
         </div>
       </div>
 
-      <!-- Hourly Forecast (2, 4, 6 hours) -->
-      <div class="weather-forecast">
-        <div class="forecast-item">
-          <span id="forecast-time-0" class="f-time">-- AM</span>
-          <span id="forecast-icon-0" class="f-icon">☀️</span>
-          <span id="forecast-temp-0" class="f-temp">--°</span>
-        </div>
-        <div class="forecast-item">
-          <span id="forecast-time-1" class="f-time">-- AM</span>
-          <span id="forecast-icon-1" class="f-icon">☀️</span>
-          <span id="forecast-temp-1" class="f-temp">--°</span>
-        </div>
-        <div class="forecast-item">
-          <span id="forecast-time-2" class="f-time">-- AM</span>
-          <span id="forecast-icon-2" class="f-icon">☀️</span>
-          <span id="forecast-temp-2" class="f-temp">--°</span>
-        </div>
+      <!-- Dresden-Style Header -->
+      <div class="forecast-header">
+        <span class="forecast-title city-name">GAZİANTEP TAHMİNİ</span>
+      </div>
+
+      <!-- Daily Forecast (6 Days) -->
+      <div id="weather-daily" class="weather-daily">
+        <div class="daily-loading">Tahminler yükleniyor...</div>
       </div>
     </div>
   </div>
@@ -187,6 +188,16 @@
         <p id="system-notice" class="notice hidden">
           💡 <strong>Sistem Sesi:</strong> Ekranı paylaşırken <em>"Sistem sesini paylaş"</em> kutusunu işaretleyin.
         </p>
+      </div>
+
+      <!-- Audio Input Device Selector -->
+      <div id="device-selection-group" class="control-group">
+        <label for="select-audio-device" class="group-label">Ses Giriş Aygıtı</label>
+        <div class="select-wrapper">
+          <select id="select-audio-device" class="select-device">
+            <option value="default">Varsayılan Cihaz</option>
+          </select>
+        </div>
       </div>
 
       <!-- Sensitivity -->
