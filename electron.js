@@ -9,6 +9,10 @@ const __dirname = path.dirname(__filename);
 app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
+// Raspberry Pi / Low-spec process stability optimizations
+app.commandLine.appendSwitch('disable-dev-shm-usage'); // Prevents out-of-memory crashes on small /dev/shm partitions
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512'); // Restricts JS heap size to prevent slow memory swapping on RPi
+
 let mainWindow = null;
 
 async function createWindow() {

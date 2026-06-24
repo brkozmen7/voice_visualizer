@@ -68,9 +68,12 @@ export class VoiceVisualizer {
   private _gradCacheCy: number    = -1;
   private _gradCachePitchShift: number = -1;
 
-  // Pre-allocated typed arrays for inner-loop envelope / t computations
+  // Pre-allocated typed arrays for inner-loop envelope / t / sine computations
   private _envCache: Float32Array = new Float32Array(76);
   private _tCache: Float32Array   = new Float32Array(76);
+  private _midSinCache: Float32Array = new Float32Array(76);
+  private _highSinCache: Float32Array = new Float32Array(76);
+  private _bassSinCache: Float32Array = new Float32Array(76);
 
   // Idle-mode FPS throttle: only draw ~20fps when no audio is active (saves ~66% GPU on RPi)
   private _lastFrameTime: number = 0;
@@ -89,11 +92,29 @@ export class VoiceVisualizer {
 
   // Handle high-DPI scaling for crisp graphics
   public resize(): void {
-    const dpr = Math.min(1.5, window.devicePixelRatio || 1); // Cap DPR at 1.5 to boost GPU performance on Raspberry Pi / high-res screens
     const rect = this.canvas.getBoundingClientRect();
-    this.canvas.width  = rect.width  * dpr;
-    this.canvas.height = rect.height * dpr;
+    
+    // For Raspberry Pi / low-spec CPU rendering, we cap the maximum physical rendering width/height at 1280x720.
+    // CSS handles upscaling to full-screen kiosk smoothly using hardware compositing.
+    const maxRenderWidth = 1280;
+    const maxRenderHeight = 720;
+    
+    let dpr = window.devicePixelRatio || 1;
+    let physWidth = rect.width * dpr;
+    let physHeight = rect.height * dpr;
+    
+    if (physWidth > maxRenderWidth || physHeight > maxRenderHeight) {
+      const scaleX = maxRenderWidth / rect.width;
+      const scaleY = maxRenderHeight / rect.height;
+      dpr = Math.min(scaleX, scaleY);
+      physWidth = rect.width * dpr;
+      physHeight = rect.height * dpr;
+    }
+    
+    this.canvas.width  = Math.floor(physWidth);
+    this.canvas.height = Math.floor(physHeight);
     this.ctx.scale(dpr, dpr);
+    
     // Cache logical dimensions so draw() never needs to divide by dpr each frame
     this.cachedWidth  = rect.width;
     this.cachedHeight = rect.height;
@@ -443,9 +464,6 @@ export class VoiceVisualizer {
     const height = this.cachedHeight;
 
     this.ctx.clearRect(0, 0, width, height);
-    
-    // Draw dynamic background aura glow and bokeh stardust
-    this.drawBackground(width, height);
 
     // Time: constant gentle base speed + organic volume acceleration
     this.time += 0.008 + this.smooth.vol * 0.006;
@@ -461,16 +479,27 @@ export class VoiceVisualizer {
 
     this.ctx.globalCompositeOperation = 'screen';
 
-    const waveCount = 16; // Reduced to 16 for ultra-low CPU load on Raspberry Pi
-    const pts = 45;       // Reduced to 45 for ultra-low CPU load on Raspberry Pi
+    const waveCount = 10; // Optimized for RPi CPU-only rendering (down from 16)
+    const pts = 36;       // Optimized for RPi CPU-only rendering (down from 45)
 
-    // Fill pre-allocated env/t caches once per frame (avoids per-wave re-computation & allocation)
-    const envCache = this._envCache;
-    const tCache   = this._tCache;
+    // Pre-calculate repeating sine and envelope math once per frame
+    const envCache  = this._envCache;
+    const tCache    = this._tCache;
+    const midCache  = this._midSinCache;
+    const highCache = this._highSinCache;
+    const bassCache = this._bassSinCache;
+
+    const midTime = this.time * 4.3;
+    const highTime = this.time * -7.0;
+    const bassTime = this.time * -0.8;
+
     for (let j = 0; j <= pts; j++) {
       const t = j / pts;
       tCache[j]   = t;
       envCache[j] = Math.sin(t * Math.PI);
+      midCache[j]  = Math.sin(t * 33 + midTime);
+      highCache[j] = Math.sin(t * 78 + highTime);
+      bassCache[j] = Math.sin(t * 2.0 + bassTime);
     }
 
     // Precalculate frame-level voice & pitch variables (moved out of inner loops for 90% CPU savings)
@@ -488,7 +517,6 @@ export class VoiceVisualizer {
     const spread  = (1.0 + this.smooth.bass * 0.70) * activeSpread;
 
     // ── Build one shared gradient per frame for colored styles ─────────────
-    // This replaces 45 createLinearGradient() calls with just 1 per frame
     const isClassic = this.style === 'classic';
     if (!isClassic) {
       const maxH          = 45 + this.smooth.bass * 95;
@@ -538,7 +566,7 @@ export class VoiceVisualizer {
     for (let i = 0; i < waveCount; i++) {
       const depth = i / (waveCount - 1); // 0 = back, 1 = front
 
-      // Thicker lines and slightly higher opacities to make 16 waves look full and premium
+      // Thicker lines and slightly higher opacities to make 10 waves look full and premium
       const opacity   = (0.12 + depth * 0.58) * this.morphFactor; 
       const lineWidth = 1.0 + depth * 2.5;   
 
@@ -584,15 +612,14 @@ export class VoiceVisualizer {
         let wave = Math.sin(t * freq - phase) * 0.70;
         wave    += Math.sin(t * freq * 1.6 + phase * 1.2) * 0.23;
         wave    += Math.cos(t * freq * 3.3 - phase * 0.7) * 0.07;
-        // Inline Math.sign to avoid a function call per inner-loop iteration
         wave = Math.pow(Math.abs(wave), waveExponent) * (wave < 0 ? -1 : 1);
 
-        // Balanced mid ripple during speech
-        const midRipple  = Math.sin(t * 33 + this.time * 4.3) * midInf  * 18 * sinDepthPI;
-        // Moderate high ripple
-        const highRipple = Math.sin(t * 78 - this.time * 7) * highInf * 9 * highFactor;
-        // Increased bass sway
-        const bassSway   = Math.sin(t * 2.0 - this.time * 0.8) * bassInf * 52 * env;
+        // Balanced mid ripple during speech (utilizing precalculated sines)
+        const midRipple  = midCache[j] * midInf  * 18 * sinDepthPI;
+        // Moderate high ripple (utilizing precalculated sines)
+        const highRipple = highCache[j] * highInf * 9 * highFactor;
+        // Increased bass sway (utilizing precalculated sines)
+        const bassSway   = bassCache[j] * bassInf * 52 * env;
 
         const originalY = centerY + yOffset + wave * amp * env + (midRipple + highRipple) * env + bassSway;
         const originalX = t * width + xShift;
@@ -613,46 +640,5 @@ export class VoiceVisualizer {
     }
 
     this.ctx.globalCompositeOperation = 'source-over';
-  }
-
-  // ─── Background (Aura Glow + Vignette only — particles removed for performance) ─
-
-  private drawBackground(width: number, height: number): void {
-    // If the style is 'classic', we keep the background 100% pure black for Magic Mirror compatibility,
-    // which also saves valuable GPU/CPU rendering resources on the Raspberry Pi.
-    if (this.style === 'classic') return;
-
-    // 1. Dynamic Radial Ambient Aura Glow (only for colored themes)
-    const centerY = height / 2 + (this.smooth.bass * -32);
-    const radius = Math.min(width, height) * (0.42 + this.smooth.bass * 0.18);
-
-    let hue = 225;
-    let sat = "40%";
-    let light = "8%";
-
-    const pitchHueShift = this.smooth.pitch > 0
-      ? Math.min(35, Math.max(0, (this.smooth.pitch - 100) * 0.08))
-      : 0;
-
-    if (this.style === 'neon') {
-      hue = 187 + pitchHueShift; sat = "80%"; light = "10%";
-    } else if (this.style === 'sunset') {
-      hue = 340 + pitchHueShift * 0.3; sat = "80%"; light = "8%";
-    } else if (this.style === 'cyber') {
-      hue = 120 - pitchHueShift * 0.3; sat = "75%"; light = "6%";
-    } else if (this.style === 'gold') {
-      hue = 42 + pitchHueShift * 0.2; sat = "65%"; light = "7%";
-    }
-
-    const auraOpacity = 0.07 + this.smooth.vol * 0.15;
-
-    const grad = this.ctx.createRadialGradient(width / 2, centerY, 5, width / 2, centerY, radius);
-    grad.addColorStop(0, `hsla(${hue}, ${sat}, ${light}, ${auraOpacity})`);
-    grad.addColorStop(1, `rgba(0, 0, 0, 0)`);
-
-    this.ctx.fillStyle = grad;
-    this.ctx.fillRect(0, 0, width, height);
-
-    // Vignette is offloaded directly to CSS on #visualizer-canvas for performance
   }
 }
