@@ -158,14 +158,12 @@ body {
 @keyframes breatheIn {
   0% {
     opacity: 0;
-    filter: blur(8px) brightness(0.2);
-    transform: translateY(6px) scale(0.98);
+    transform: translate3d(0, 6px, 0) scale3d(0.98, 0.98, 1);
   }
 
   100% {
     opacity: 1;
-    filter: blur(0px) brightness(1);
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0) scale3d(1, 1, 1);
   }
 }
 
@@ -174,25 +172,24 @@ body.assistant-active .smart-widget,
 body.assistant-active .news-widget,
 body.assistant-active .widget-greeting {
   opacity: 0.25 !important;
-  filter: brightness(0.25);
 }
 
 /* Hide app-header completely during messages */
 body.assistant-active .app-header {
   opacity: 0 !important;
   visibility: hidden !important;
-  transform: translateY(-20px) !important;
+  transform: translate3d(0, -20px, 0) !important;
 }
 
 /* Transitions - do NOT include transform on widgets to prevent breaking fixed child position */
 .smart-widget,
 .news-widget,
 .widget-greeting {
-  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), filter 0.5s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
 .app-header {
-  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), filter 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
 /* Different alert styles */
@@ -252,6 +249,8 @@ body.assistant-active .app-header {
   margin-bottom: 1rem;
   animation: fadeInDown 0.8s ease-out;
   transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
 }
 
 .app-logo {
@@ -311,6 +310,8 @@ body.assistant-active .app-header {
   flex-direction: column;
   gap: 1.25rem;
   transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
 }
 
 /* Subtle top sheen on dashboard */
@@ -375,13 +376,13 @@ body:not(.ui-collapsed) .news-widget {
 /* Zen Mode (UI Collapsed) styles */
 body.ui-collapsed .app-header {
   opacity: 0;
-  transform: translateY(-30px);
+  transform: translate3d(0, -30px, 0);
   pointer-events: none;
 }
 
 body.ui-collapsed .dashboard {
   opacity: 0;
-  transform: translateX(50px) scale(0.95);
+  transform: translate3d(50px, 0, 0) scale3d(0.95, 0.95, 1);
   /* Slide right when collapsed to match right-side placement */
   pointer-events: none;
 }
@@ -800,36 +801,36 @@ body.ui-collapsed .btn-toggle-ui:hover {
 @keyframes fadeInDown {
   from {
     opacity: 0;
-    transform: translateY(-20px);
+    transform: translate3d(0, -20px, 0);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 @keyframes fadeInLeft {
   from {
     opacity: 0;
-    transform: translateX(-40px);
+    transform: translate3d(-40px, 0, 0);
   }
 
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 @keyframes fadeInRight {
   from {
     opacity: 0;
-    transform: translateX(40px);
+    transform: translate3d(40px, 0, 0);
   }
 
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
@@ -2171,7 +2172,6 @@ body.ui-collapsed .footer-credit {
 /* Dim IoT Status Bar when assistant is active */
 body.assistant-active .iot-status-bar {
   opacity: 0.25 !important;
-  filter: brightness(0.25);
 }
 
 /* Center J.A.R.V.I.S Logo Styling */

@@ -9,7 +9,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"npm run dev -- --port 5173 --strictPort\" \"wait-on http://localhost:5173 && node run-electron.js\"",
-    "electron:build": "npm run build && electron-builder"
+    "electron:build": "npm run build && electron-builder",
+    "electron:build:pi": "npm run build && electron-builder --linux --arm64"
   },
   "build": {
     "appId": "com.burakozmen.magicmirror",
@@ -27,8 +28,19 @@
     },
     "linux": {
       "target": [
-        "AppImage",
-        "deb"
+        {
+          "target": "AppImage",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "arm64",
+            "armv7l"
+          ]
+        }
       ],
       "category": "Utility"
     }

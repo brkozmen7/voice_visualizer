@@ -14,12 +14,20 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('disable-dev-shm-usage'); // Prevents out-of-memory crashes on small /dev/shm partitions
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512'); // Restricts JS heap size to prevent slow memory swapping on RPi
 
+// Donanımsal hızlandırmayı zorla ve engellemeleri kaldır (Raspberry Pi 4 VideoCore VI GPU optimizasyonları)
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
+app.commandLine.appendSwitch('v8-cache-options', 'code');
+app.commandLine.appendSwitch('enable-hardware-overlays');
+
 let mainWindow = null;
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 1920,
+    height: 1080,
     fullscreen: true,
     kiosk: true, // Auto start in kiosk mode for the mirror
     frame: false,
@@ -27,6 +35,8 @@ async function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      backgroundThrottling: false, // ÇOK KRİTİK: Ayna arka plana düştüğünü sandığında animasyonları yavaşlatmasın!
+      devTools: !app.isPackaged, // Canlı üretimde mutlaka kapat
       preload: path.join(__dirname, 'preload.js'),
     },
   });
