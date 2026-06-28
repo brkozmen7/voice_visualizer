@@ -11,15 +11,23 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
-    href="https://fonts.googleapis.com/css2?family=Outfit:wght@100;200;300;400;500;600;800&family=JetBrains+Mono:wght@300;400;600&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Michroma&family=Orbitron:wght@600;800;900&family=Outfit:wght@100;200;300;400;500;600;800&family=JetBrains+Mono:wght@300;400;600&display=swap"
     rel="stylesheet"
     media="print" onload="this.media='all'">
 </head>
 
 <body>
+  <!-- Center J.A.R.V.I.S Logo -->
+  <div class="jarvis-core-logo">
+    <div class="logo-circle"></div>
+    <div class="logo-text">KESTREL</div>
+  </div>
+
+  <!-- Always Visible Greeting (Centered at top) -->
+  <div id="weather-greeting" class="widget-greeting"><span class="greeting-prefix">Merhaba,</span> <span class="greeting-name">BURAK</span></div>
+
   <!-- Always Visible Smart Widget (Clock, Date, Weather) -->
   <div class="smart-widget">
-    <div id="weather-greeting" class="widget-greeting">Merhaba, BURAK</div>
     <!-- Time & Date -->
     <div class="widget-section time-section">
       <div id="clock-time" class="clock-display">00:00<span class="seconds">00</span></div>
@@ -132,139 +140,86 @@
     </svg>
   </button>
 
-  <!-- Full-screen canvas -->
-  <canvas id="visualizer-canvas"></canvas>
+  <!-- Assistant Widget (OpenClaw Output Display) -->
+  <div id="assistant-widget" class="assistant-widget hidden">
+    <div class="assistant-card">
+      <div class="assistant-body">
+        <div class="assistant-content">
+          <div class="assistant-header">
+            <span class="assistant-status-dot"></span>
+            <span id="assistant-title" class="assistant-title">OPENCLAW</span>
+          </div>
+          <div id="assistant-text" class="assistant-text">Sistem hazır. Bağlantı bekleniyor...</div>
+        </div>
+        <img id="assistant-image" class="assistant-image hidden" src="" alt="OpenClaw Visual" />
+      </div>
+    </div>
+  </div>
 
   <!-- Main UI -->
   <main class="app-container">
-    <header class="app-header">
-      <h1>MAGIC MIRROR</h1>
-      <p class="subtitle">Kişisel Akıllı Ayna</p>
-    </header>
 
     <section class="dashboard" id="dashboard">
 
-      <!-- Start / Stop -->
-      <div class="control-group action-group">
-        <button id="btn-toggle-capture" class="btn btn-primary btn-glow">
-          <span class="btn-icon">▶</span>
-          <span class="btn-text">Başlat</span>
-        </button>
-      </div>
-
-      <!-- Audio Source — 3 options -->
-      <div class="control-group">
-        <label class="group-label">Ses Kaynağı</label>
-        <div class="source-grid">
-          <button id="src-mic" class="btn-source active" data-source="mic">
-            <svg class="src-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" x2="12" y1="19" y2="22" />
-            </svg>
-            <span class="src-label">Mikrofon</span>
-          </button>
-          <button id="src-system" class="btn-source" data-source="system">
-            <svg class="src-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect width="20" height="14" x="2" y="3" rx="2" />
-              <line x1="8" x2="16" y1="21" y2="21" />
-              <line x1="12" x2="12" y1="17" y2="21" />
-            </svg>
-            <span class="src-label">Sistem Sesi</span>
-          </button>
-          <button id="src-both" class="btn-source" data-source="both">
-            <svg class="src-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" x2="12" y1="19" y2="22" />
-              <path d="M5 12h2m10 0h2" opacity="0.5" />
-            </svg>
-            <span class="src-label">İkisi Birden</span>
-          </button>
-        </div>
-        <p id="system-notice" class="notice hidden">
-          💡 <strong>Sistem Sesi:</strong> Ekranı paylaşırken <em>"Sistem sesini paylaş"</em> kutusunu işaretleyin.
-        </p>
-      </div>
-
-      <!-- Audio Input Device Selector -->
-      <div id="device-selection-group" class="control-group">
-        <label for="select-audio-device" class="group-label">Ses Giriş Aygıtı</label>
-        <div class="select-wrapper">
-          <select id="select-audio-device" class="select-device">
-            <option value="default">Varsayılan Cihaz</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Sensitivity -->
-      <div class="control-group">
-        <div class="slider-header">
-          <label for="slider-sensitivity" class="group-label">Hassasiyet</label>
-          <span id="val-sensitivity" class="slider-value">1.5×</span>
-        </div>
-        <input type="range" id="slider-sensitivity" min="0.5" max="3.0" step="0.1" value="1.5" class="slider">
-      </div>
-
       <!-- Visual Style -->
-      <div class="control-group">
+      <div class="control-group theme-card">
         <label class="group-label">Görsel Tema</label>
-        <div class="style-grid">
-          <button id="style-classic" class="btn-style active" data-style="classic">White</button>
-          <button id="style-neon" class="btn-style" data-style="neon">Neon</button>
-          <button id="style-sunset" class="btn-style" data-style="sunset">Sunset</button>
-          <button id="style-cyber" class="btn-style" data-style="cyber">Cyber</button>
-          <button id="style-gold" class="btn-style" data-style="gold">Gold</button>
-        </div>
-      </div>
 
-      <!-- Real-time stats -->
-      <div class="stats-panel">
-        <div class="stat-item">
-          <span class="stat-label">BASS</span>
-          <div class="progress-bar-container">
-            <div id="bar-bass" class="progress-bar" style="width:0%"></div>
-          </div>
-          <span id="txt-bass" class="stat-value">0.00</span>
+        <!-- Accent Mode Row -->
+        <div class="theme-mode-row">
+          <button id="style-static" class="btn-style active" data-style="static">
+            <span class="theme-dot theme-dot-static"></span>
+            <span class="theme-btn-label">Statik</span>
+          </button>
+          <button id="style-dynamic" class="btn-style" data-style="dynamic">
+            <span class="theme-dot theme-dot-dynamic"></span>
+            <span class="theme-btn-label">Dinamik</span>
+          </button>
         </div>
-        <div class="stat-item">
-          <span class="stat-label">MID</span>
-          <div class="progress-bar-container">
-            <div id="bar-mid" class="progress-bar" style="width:0%"></div>
-          </div>
-          <span id="txt-mid" class="stat-value">0.00</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">HIGH</span>
-          <div class="progress-bar-container">
-            <div id="bar-high" class="progress-bar" style="width:0%"></div>
-          </div>
-          <span id="txt-high" class="stat-value">0.00</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">FREQ</span>
-          <div class="progress-bar-container">
-            <div id="bar-freq" class="progress-bar" style="width:0%"></div>
-          </div>
-          <span id="txt-freq" class="stat-value">0 Hz</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">VOL</span>
-          <div class="progress-bar-container">
-            <div id="bar-vol" class="progress-bar" style="width:0%"></div>
-          </div>
-          <span id="txt-vol" class="stat-value">0.00</span>
+
+        <!-- Color Palette Row -->
+        <div class="theme-palette-row">
+          <button class="theme-swatch active" data-theme="" title="Klasik Beyaz">
+            <span class="swatch-circle" style="background: #ffffff;"></span>
+            <span class="swatch-label">Beyaz</span>
+          </button>
+          <button class="theme-swatch" data-theme="neon-theme" title="Neon Mavi">
+            <span class="swatch-circle" style="background: linear-gradient(135deg,#00f2fe,#4facfe);"></span>
+            <span class="swatch-label">Neon</span>
+          </button>
+          <button class="theme-swatch" data-theme="sunset-theme" title="Gün Batımı">
+            <span class="swatch-circle" style="background: linear-gradient(135deg,#ff0844,#ffb199);"></span>
+            <span class="swatch-label">Sunset</span>
+          </button>
+          <button class="theme-swatch" data-theme="cyber-theme" title="Cyberpunk">
+            <span class="swatch-circle" style="background: linear-gradient(135deg,#39ff14,#ff007f);"></span>
+            <span class="swatch-label">Cyber</span>
+          </button>
+          <button class="theme-swatch" data-theme="gold-theme" title="Altın">
+            <span class="swatch-circle" style="background: linear-gradient(135deg,#ffd700,#b8860b);"></span>
+            <span class="swatch-label">Altın</span>
+          </button>
         </div>
       </div>
 
     </section>
   </main>
 
+  <!-- IoT Status Bar -->
+  <div id="iot-status-bar" class="iot-status-bar">
+    <div class="iot-item" id="iot-climate"><span class="iot-label">İÇ ORTAM</span> <span class="iot-val">--°C / %--</span></div>
+    <div class="iot-divider">•</div>
+    <div class="iot-item" id="iot-curtain"><span class="iot-label">PERDE</span> <span class="iot-val">--</span></div>
+    <div class="iot-divider">•</div>
+    <div class="iot-item" id="iot-printer"><span class="iot-label">3D YAZICI</span> <span class="iot-val">--</span></div>
+    <div class="iot-divider">•</div>
+    <div class="iot-item" id="iot-light"><span class="iot-label">ODA IŞIĞI</span> <span class="iot-val">--</span></div>
+    <div class="iot-divider">•</div>
+    <div class="iot-item" id="iot-lock"><span class="iot-label">KAPI KİLİDİ</span> <span class="iot-val">--</span></div>
+  </div>
+
   <div class="footer-credit">
-    Developed by <a href="https://burakozmen.com" target="_blank" rel="noopener noreferrer">burakozmen.com</a>
+    <span class="credit-label">Developed by</span> <a href="https://burakozmen.com" target="_blank" rel="noopener noreferrer">burakozmen.com</a>
   </div>
 
   <script type="module" src="/src/main.ts"></script>

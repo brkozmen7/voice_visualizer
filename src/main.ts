@@ -1,34 +1,9 @@
 import './style.css';
-import { VoiceVisualizer } from './visualizer';
-import type { AudioSource } from './visualizer';
+import { createClient } from '@supabase/supabase-js';
 
 document.addEventListener('DOMContentLoaded', () => {
-  const canvas = document.getElementById('visualizer-canvas') as HTMLCanvasElement;
-  if (!canvas) return;
-
-  const visualizer = new VoiceVisualizer(canvas);
-
   // ── UI element references (all cached once at startup) ────────────────────
   const btnToggleUI      = document.getElementById('btn-toggle-ui')      as HTMLButtonElement;
-  const btnToggleCapture = document.getElementById('btn-toggle-capture') as HTMLButtonElement;
-  const srcMic           = document.getElementById('src-mic')            as HTMLButtonElement;
-  const srcSystem        = document.getElementById('src-system')         as HTMLButtonElement;
-  const srcBoth          = document.getElementById('src-both')           as HTMLButtonElement;
-  const systemNotice     = document.getElementById('system-notice')      as HTMLParagraphElement;
-  const sliderSens       = document.getElementById('slider-sensitivity') as HTMLInputElement;
-  const valSens          = document.getElementById('val-sensitivity')    as HTMLSpanElement;
-  const selectAudioDevice = document.getElementById('select-audio-device') as HTMLSelectElement;
-
-  const barBass = document.getElementById('bar-bass') as HTMLDivElement;
-  const barMid  = document.getElementById('bar-mid')  as HTMLDivElement;
-  const barHigh = document.getElementById('bar-high') as HTMLDivElement;
-  const barFreq = document.getElementById('bar-freq') as HTMLDivElement;
-  const barVol  = document.getElementById('bar-vol')  as HTMLDivElement;
-  const txtBass = document.getElementById('txt-bass') as HTMLSpanElement;
-  const txtMid  = document.getElementById('txt-mid')  as HTMLSpanElement;
-  const txtHigh = document.getElementById('txt-high') as HTMLSpanElement;
-  const txtFreq = document.getElementById('txt-freq') as HTMLSpanElement;
-  const txtVol  = document.getElementById('txt-vol')  as HTMLSpanElement;
 
   // ── Cached weather DOM refs (avoids repeated getElementById in hot path) ───
   const elWeatherTemp    = document.getElementById('weather-temp')      as HTMLSpanElement;
@@ -39,152 +14,233 @@ document.addEventListener('DOMContentLoaded', () => {
   const elWeatherSunIcon  = document.getElementById('weather-sun-icon')  as HTMLSpanElement;
   const elWeatherDaily    = document.getElementById('weather-daily')     as HTMLDivElement;
 
-  // ── State ──────────────────────────────────────────────────────────────────
-  let activeSource: AudioSource = 'mic';
+  // ── Supabase Integration (RGB Sync) ───────────────────────────────────────
+  const SUPABASE_URL = 'https://xfxgdcfzsvlzhvjcnhzz.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmeGdkY2Z6c3Zsemh2amNuaHp6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MDYzNTUyNywiZXhwIjoyMDc2MjExNTI3fQ.QcJLu2DX2SPeDSmK1UwD7WK2KsAAguJZHdO90PnvWjw';
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let currentSupabaseColor = { red: 255, green: 255, blue: 255 };
+
+  function updateAccentColor(red: number, green: number, blue: number) {
+    currentSupabaseColor = { red, green, blue };
+    applyCurrentTheme();
+  }
+
+  function applyCurrentTheme() {
+    const activeBtn = document.querySelector<HTMLButtonElement>('.btn-style.active');
+    const style = activeBtn ? (activeBtn.dataset['style'] as string) : 'static';
+
+    if (style === 'static') {
+      document.documentElement.style.setProperty('--accent-color', `#ffffff`);
+      document.documentElement.style.setProperty('--accent-glow', `rgba(255, 255, 255, 0.35)`);
+    } else {
+      const { red, green, blue } = currentSupabaseColor;
+      document.documentElement.style.setProperty('--accent-color', `rgb(${red}, ${green}, ${blue})`);
+      document.documentElement.style.setProperty('--accent-glow', `rgba(${red}, ${green}, ${blue}, 0.35)`);
+    }
+  }
+
+  let localDevices: any[] = [];
+
+  // Cached DOM elements for IoT status bar
+  const elIotClimate = document.getElementById('iot-climate') as HTMLDivElement;
+  const elIotCurtain = document.getElementById('iot-curtain') as HTMLDivElement;
+  const elIotPrinter = document.getElementById('iot-printer') as HTMLDivElement;
+  const elIotLight   = document.getElementById('iot-light')   as HTMLDivElement;
+  const elIotLock    = document.getElementById('iot-lock')    as HTMLDivElement;
+
+  function updateIotStatusBar() {
+    // 1. İç Ortam (id: 6 - Sıcaklık Sensörü)
+    const climateDevice = localDevices.find(d => d.id === 6);
+    if (climateDevice && elIotClimate) {
+      const valEl = elIotClimate.querySelector('.iot-val');
+      if (valEl) {
+        valEl.textContent = `${climateDevice.sicaklik || '--'}°C / %${climateDevice.nem || '--'}`;
+      }
+    }
+
+    // 2. Perde (id: 2 - Perde)
+    const curtainDevice = localDevices.find(d => d.id === 2);
+    if (curtainDevice && elIotCurtain) {
+      const valEl = elIotCurtain.querySelector('.iot-val');
+      if (valEl) {
+        valEl.textContent = `%${curtainDevice.position ?? 0}`;
+      }
+    }
+
+    // 3. 3D Yazıcı (id: 3 - 3D Yazıcı)
+    const printerDevice = localDevices.find(d => d.id === 3);
+    if (printerDevice && elIotPrinter) {
+      const valEl = elIotPrinter.querySelector('.iot-val');
+      if (valEl) {
+        valEl.textContent = printerDevice.is_active ? 'Aktif' : 'Pasif';
+      }
+    }
+
+    // 4. Oda Işığı (id: 1 - Oda Işığı)
+    const lightDevice = localDevices.find(d => d.id === 1);
+    if (lightDevice && elIotLight) {
+      const valEl = elIotLight.querySelector('.iot-val');
+      if (valEl) {
+        valEl.textContent = lightDevice.is_active ? 'Açık' : 'Kapalı';
+      }
+    }
+
+    // 5. Kapı Kilidi (id: 4 - Elektronik Kapı)
+    const lockDevice = localDevices.find(d => d.id === 4);
+    if (lockDevice && elIotLock) {
+      const valEl = elIotLock.querySelector('.iot-val');
+      if (valEl) {
+        valEl.textContent = lockDevice.is_active ? 'Kilitli' : 'Açık';
+      }
+    }
+  }
+
+  function checkRgbSync() {
+    const rgbDevice = localDevices.find(d => 
+      (d.type === 'rgb' || d.type === 'light' || d.name?.toLowerCase().includes('led') || d.name?.toLowerCase().includes('rgb') || d.name?.toLowerCase().includes('ambiyans')) &&
+      d.red_light !== null && d.green_light !== null && d.blue_light !== null &&
+      !d.name?.toLowerCase().includes('sensör')
+    );
+    if (rgbDevice) {
+      updateAccentColor(rgbDevice.red_light || 0, rgbDevice.green_light || 0, rgbDevice.blue_light || 0);
+    }
+  }
+
+  // Fetch initial state and subscribe to changes
+  async function initSupabaseSync() {
+    try {
+      const { data, error } = await supabase
+        .from('devices')
+        .select('*');
+
+      if (error) {
+        console.warn('Initial Supabase devices fetch warning:', error.message);
+        return;
+      }
+
+      if (data) {
+        localDevices = data;
+        updateIotStatusBar();
+        checkRgbSync();
+      }
+    } catch (e) {
+      console.error('Failed to initialize Supabase sync:', e);
+    }
+
+    // Subscribe to all changes on devices table
+    supabase
+      .channel('devices-live-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'devices'
+        },
+        (payload: any) => {
+          const { eventType, new: newRow, old: oldRow } = payload;
+          if (eventType === 'INSERT') {
+            localDevices.push(newRow);
+          } else if (eventType === 'UPDATE') {
+            const index = localDevices.findIndex(d => d.id === newRow.id);
+            if (index !== -1) {
+              localDevices[index] = newRow;
+            } else {
+              localDevices.push(newRow);
+            }
+          } else if (eventType === 'DELETE') {
+            localDevices = localDevices.filter(d => d.id !== oldRow.id);
+          }
+          updateIotStatusBar();
+          checkRgbSync();
+        }
+      )
+      .subscribe((status) => {
+        console.log('Supabase Realtime subscription status:', status);
+      });
+  }
+
+  initSupabaseSync();
 
   // ── Zen mode toggle ────────────────────────────────────────────────────────
   btnToggleUI.addEventListener('click', () => {
     document.body.classList.toggle('ui-collapsed');
   });
 
-  // ── Source selection ───────────────────────────────────────────────────────
-  const sourceButtons = [
-    { btn: srcMic,    source: 'mic'    as AudioSource, needsSystem: false },
-    { btn: srcSystem, source: 'system' as AudioSource, needsSystem: true  },
-    { btn: srcBoth,   source: 'both'   as AudioSource, needsSystem: true  },
-  ];
+  // ── OpenClaw Message Listener ──────────────────────────────────────────────
+  const elAssistantWidget = document.getElementById('assistant-widget') as HTMLDivElement;
+  const elAssistantTitle  = document.getElementById('assistant-title') as HTMLSpanElement;
+  const elAssistantText   = document.getElementById('assistant-text') as HTMLDivElement;
+  const elAssistantBody   = elAssistantWidget?.querySelector('.assistant-body') as HTMLDivElement;
+  const elAssistantImage  = document.getElementById('assistant-image') as HTMLImageElement;
+  const elAssistantCard   = elAssistantWidget?.querySelector('.assistant-card') as HTMLDivElement;
 
-  const setSource = async (source: AudioSource) => {
-    if (activeSource === source && !visualizer.isCapturing) return;
-    activeSource = source;
+  let assistantTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    // Update active state on buttons
-    sourceButtons.forEach(({ btn, source: btnSrc }) => {
-      btn.classList.toggle('active', btnSrc === source);
-    });
+  const electronAPI = (window as any).electronAPI;
+  if (electronAPI && electronAPI.onShowMessage) {
+    electronAPI.onShowMessage((data: { text: string; title?: string; type?: string; duration?: number; image?: string }) => {
+      if (!elAssistantWidget || !elAssistantText || !elAssistantTitle || !elAssistantCard) return;
 
-    // Show/hide system notice
-    const needsSystem = source === 'system' || source === 'both';
-    systemNotice.classList.toggle('hidden', !needsSystem);
-
-    // If already capturing, restart with new source
-    if (visualizer.isCapturing) {
-      await doStart();
-    }
-  };
-
-  sourceButtons.forEach(({ btn, source }) => {
-    btn.addEventListener('click', () => setSource(source));
-  });
-
-  // ── Start / Stop ───────────────────────────────────────────────────────────
-  const doStart = async () => {
-    btnToggleCapture.disabled = true;
-    const txtEl = btnToggleCapture.querySelector('.btn-text')!;
-    txtEl.textContent = 'Bağlanıyor…';
-
-    try {
-      const selectedDevice = selectAudioDevice.value;
-      await visualizer.start(activeSource, selectedDevice);
-      setCaptureUI(true);
-      // Auto-collapse UI after a short delay so the user can enjoy the visual
-      setTimeout(() => {
-        if (visualizer.isCapturing) document.body.classList.add('ui-collapsed');
-      }, 1400);
-    } catch (err: any) {
-      console.error('Ses yakalama hatası:', err);
-      alert(`Hata: ${err.message || err}`);
-      setCaptureUI(false);
-    } finally {
-      btnToggleCapture.disabled = false;
-    }
-  };
-
-  btnToggleCapture.addEventListener('click', async () => {
-    if (visualizer.isCapturing) {
-      visualizer.stop();
-      setCaptureUI(false);
-      document.body.classList.remove('ui-collapsed');
-    } else {
-      await doStart();
-    }
-  });
-
-  // ── Device enumeration and management ──────────────────────────────────────
-  async function populateDevices() {
-    try {
-      // Temporarily request permission to ensure device labels are populated
-      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      if (tempStream) {
-        tempStream.getTracks().forEach(track => track.stop());
+      // Cancel any active timers
+      if (assistantTimeoutId) {
+        clearTimeout(assistantTimeoutId);
+        assistantTimeoutId = null;
       }
 
-      // Clear list
-      selectAudioDevice.innerHTML = '';
+      // Update title
+      elAssistantTitle.textContent = data.title || 'OPENCLAW';
 
-      // Screen share option
-      const optScreen = document.createElement('option');
-      optScreen.value = 'screen-share';
-      optScreen.textContent = '🖥️ Ekran Paylaşımı (Tarayıcı)';
-      selectAudioDevice.appendChild(optScreen);
+      // Reset card classes
+      elAssistantCard.className = 'assistant-card';
+      const messageType = data.type || 'assistant';
+      elAssistantCard.classList.add(messageType);
 
-      // Default microphone option
-      const optDefault = document.createElement('option');
-      optDefault.value = 'default';
-      optDefault.textContent = '🎤 Varsayılan Mikrofon';
-      selectAudioDevice.appendChild(optDefault);
-
-      let index = 1;
-      devices.forEach(device => {
-        if (device.kind === 'audioinput') {
-          // Skip alias names
-          if (device.deviceId === 'default' || device.deviceId === 'communications') return;
-          const option = document.createElement('option');
-          option.value = device.deviceId;
-          option.textContent = device.label || `Giriş Aygıtı ${index++}`;
-          selectAudioDevice.appendChild(option);
+      // Handle optional image display
+      if (elAssistantImage) {
+        if (data.image) {
+          elAssistantImage.src = data.image;
+          elAssistantImage.classList.remove('hidden');
+        } else {
+          elAssistantImage.src = '';
+          elAssistantImage.classList.add('hidden');
         }
-      });
-
-      // Restore saved selection
-      const savedDevice = localStorage.getItem('selected_audio_device');
-      if (savedDevice && Array.from(selectAudioDevice.options).some(opt => opt.value === savedDevice)) {
-        selectAudioDevice.value = savedDevice;
-      } else {
-        selectAudioDevice.value = 'default';
       }
-    } catch (err) {
-      console.error('Cihazlar listelenirken hata oluştu:', err);
-    }
+
+      // Trigger breathing fade-in animation on container body
+      if (elAssistantBody) {
+        elAssistantBody.classList.remove('assistant-text-animate');
+        void elAssistantBody.offsetWidth; 
+        elAssistantText.innerHTML = data.text;
+        elAssistantBody.classList.add('assistant-text-animate');
+      } else {
+        elAssistantText.innerHTML = data.text;
+      }
+
+      // Show widget and dim other UI components
+      elAssistantWidget.classList.remove('hidden');
+      document.body.classList.add('assistant-active');
+
+      // Auto-hide unless duration is set to 0 or null
+      const duration = data.duration !== undefined ? data.duration : 7000;
+      if (duration > 0) {
+        assistantTimeoutId = setTimeout(() => {
+          elAssistantWidget.classList.add('hidden');
+          document.body.classList.remove('assistant-active');
+        }, duration);
+      }
+    });
   }
-
-  populateDevices();
-
-  navigator.mediaDevices.addEventListener('devicechange', populateDevices);
-
-  selectAudioDevice.addEventListener('change', () => {
-    localStorage.setItem('selected_audio_device', selectAudioDevice.value);
-    if (visualizer.isCapturing) {
-      doStart();
-    }
-  });
-
-  // ── Sensitivity ────────────────────────────────────────────────────────────
-  sliderSens.addEventListener('input', () => {
-    const v = parseFloat(sliderSens.value);
-    visualizer.sensitivity = v;
-    valSens.textContent = `${v.toFixed(1)}×`;
-  });
 
   // ── Style / Theme ──────────────────────────────────────────────────────────
   const themeMap: Record<string, { bodyClass: string }> = {
-    classic: { bodyClass: '' },
-    neon:    { bodyClass: 'neon-theme' },
-    sunset:  { bodyClass: 'sunset-theme' },
-    cyber:   { bodyClass: 'cyber-theme' },
-    gold:    { bodyClass: 'gold-theme' },
+    static:  { bodyClass: '' },
+    dynamic: { bodyClass: '' },
   };
+
+  const ALL_BODY_THEMES = ['neon-theme', 'sunset-theme', 'cyber-theme', 'gold-theme'];
 
   document.querySelectorAll<HTMLButtonElement>('.btn-style').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -199,21 +255,26 @@ document.addEventListener('DOMContentLoaded', () => {
       const style = btn.dataset['style'] as keyof typeof themeMap;
       const { bodyClass } = themeMap[style] ?? { bodyClass: '' };
       if (bodyClass) document.body.classList.add(bodyClass);
-      visualizer.style = style as any;
+      
+      applyCurrentTheme();
     });
   });
 
-  // ── UI state helper ────────────────────────────────────────────────────────
-  function setCaptureUI(capturing: boolean) {
-    const iconEl = btnToggleCapture.querySelector('.btn-icon')!;
-    const txtEl  = btnToggleCapture.querySelector('.btn-text')!;
-    btnToggleCapture.classList.toggle('btn-recording', capturing);
-    iconEl.textContent = capturing ? '■' : '▶';
-    txtEl.textContent  = capturing ? 'Durdur' : 'Başlat';
-  }
+  // ── Color Palette Swatches ─────────────────────────────────────────────────
+  document.querySelectorAll<HTMLButtonElement>('.theme-swatch').forEach(swatch => {
+    swatch.addEventListener('click', () => {
+      document.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('active'));
+      swatch.classList.add('active');
 
-  // ── Resize ─────────────────────────────────────────────────────────────────
-  window.addEventListener('resize', () => visualizer.resize());
+      // Remove all color theme classes
+      ALL_BODY_THEMES.forEach(cls => document.body.classList.remove(cls));
+
+      const theme = swatch.dataset['theme'];
+      if (theme) document.body.classList.add(theme);
+
+      applyCurrentTheme();
+    });
+  });
 
   // ── Clock & Date & Greeting ────────────────────────────────────────────────
   function updateTime() {
@@ -241,7 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const greetEl = document.getElementById('weather-greeting');
     if (greetEl) {
-      greetEl.textContent = `${greet}, BURAK`;
+      greetEl.innerHTML = `<span class="greeting-prefix">${greet},</span> <span class="greeting-name">BURAK</span>`;
     }
   }
   setInterval(updateTime, 1000);
@@ -303,7 +364,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function getTurkishDayName(dateStr: string): string {
     const date = new Date(dateStr);
-    const days = ['Paz.', 'Pzt.', 'Sal.', 'Çar.', 'Per.', 'Cum.', 'Cmt.'];
+    const days = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
     return days[date.getDay()];
   }
 
@@ -366,7 +427,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (elWeatherSunIcon)  elWeatherSunIcon.innerHTML = SUNSET_SVG;
     if (elWeatherSunTime)  elWeatherSunTime.textContent = '20:12';
     if (elWeatherDaily) {
-      const fallbackDays = ['Pzt.', 'Sal.', 'Çar.', 'Per.', 'Cum.', 'Cmt.'];
+      const fallbackDays = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
       elWeatherDaily.innerHTML = fallbackDays.map((day, i) =>
         `<div class="daily-item"><span class="daily-day">${day}</span><span class="daily-icon">${getWeatherIcon(0)}</span><span class="daily-temp-max">${(32.5 - i).toFixed(1)}</span><span class="daily-temp-min">${(18.2 + i * 0.5).toFixed(1)}</span></div>`
       ).join('');
@@ -608,8 +669,8 @@ document.addEventListener('DOMContentLoaded', () => {
       
       if (parsedTrends.length > 0) {
         const grouped: { rank: number; topic: string; count: string }[][] = [];
-        for (let i = 0; i < parsedTrends.length; i += 3) {
-          const chunk = parsedTrends.slice(i, i + 3);
+        for (let i = 0; i < parsedTrends.length; i += 5) {
+          const chunk = parsedTrends.slice(i, i + 5);
           if (chunk.length > 0) {
             grouped.push(chunk);
           }
@@ -746,7 +807,6 @@ document.addEventListener('DOMContentLoaded', () => {
     clearInterval(financeIntervalId);
     clearInterval(newsTickerIntervalId);
     clearInterval(weatherIntervalId);
-    stopStatsPolling();
     // Pause the CSS scroll animation to free GPU
     if (financeScrollEl) financeScrollEl.style.animationPlayState = 'paused';
   }
@@ -762,7 +822,6 @@ document.addEventListener('DOMContentLoaded', () => {
     newsTickerIntervalId = setInterval(cycleNews, 6000);
     weatherIntervalId = setInterval(updateWeather, WEATHER_TTL_MS);
     if (financeScrollEl) financeScrollEl.style.animationPlayState = 'running';
-    startStatsPolling();
   }
 
   document.addEventListener('visibilitychange', () => {
@@ -772,48 +831,5 @@ document.addEventListener('DOMContentLoaded', () => {
       resumeBackgroundWork();
     }
   });
-
-  // ── Stats panel — setInterval at 80ms (~12fps) instead of full RAF loop ───
-  // Decouples stats DOM writes from the 60fps canvas loop. Auto-pauses when
-  // UI is collapsed or page is hidden, saving CPU on Raspberry Pi.
-  let statsIntervalId: ReturnType<typeof setInterval> | null = null;
-
-  function updateStats() {
-    if (document.body.classList.contains('ui-collapsed')) return;
-    if (document.hidden) return;
-
-    const { bass, mid, high, vol, pitch } = visualizer.stats;
-    barBass.style.width = `${(bass * 100).toFixed(1)}%`;
-    barMid.style.width  = `${(mid  * 100).toFixed(1)}%`;
-    barHigh.style.width = `${(high * 100).toFixed(1)}%`;
-    barFreq.style.width = `${(Math.min(1, Math.max(0, (pitch - 80) / 1120)) * 100).toFixed(1)}%`;
-    barVol.style.width  = `${(vol  * 100).toFixed(1)}%`;
-    txtBass.textContent = bass.toFixed(2);
-    txtMid.textContent  = mid.toFixed(2);
-    txtHigh.textContent = high.toFixed(2);
-    txtFreq.textContent = pitch > 0 ? `${Math.round(pitch)} Hz` : '0 Hz';
-    txtVol.textContent  = vol.toFixed(2);
-  }
-
-  function startStatsPolling() {
-    if (statsIntervalId !== null) return;
-    statsIntervalId = setInterval(updateStats, 80);
-  }
-  function stopStatsPolling() {
-    if (statsIntervalId !== null) { clearInterval(statsIntervalId); statsIntervalId = null; }
-  }
-
-  // Pause stats when UI collapses (saves 12 DOM updates/sec when watching visuals)
-  btnToggleUI.addEventListener('click', () => {
-    requestAnimationFrame(() => {
-      if (document.body.classList.contains('ui-collapsed')) {
-        stopStatsPolling();
-      } else {
-        startStatsPolling();
-      }
-    });
-  });
-
-  startStatsPolling();
 });
 

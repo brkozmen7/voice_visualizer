@@ -1,6 +1,7 @@
 import { app, BrowserWindow, session, globalShortcut, ipcMain, desktopCapturer } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import http from 'http';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,6 +64,51 @@ async function createWindow() {
   });
 }
 
+function startApiServer() {
+  const server = http.createServer((req, res) => {
+    // Add CORS headers for local communications
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
+    if (req.url === '/api/message' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => {
+        body += chunk.toString();
+      });
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          if (mainWindow) {
+            mainWindow.webContents.send('show-openclaw-message', data);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, message: 'Message sent to mirror display' }));
+          } else {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Main window not available' }));
+          }
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Invalid JSON payload' }));
+        }
+      });
+    } else {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not Found' }));
+    }
+  });
+
+  server.listen(18080, '127.0.0.1', () => {
+    console.log('OpenClaw Smart Mirror API Server running on http://127.0.0.1:18080');
+  });
+}
+
 app.whenReady().then(() => {
   // Handle desktop source ID queries for system audio capture
   ipcMain.handle('get-desktop-source-id', async () => {
@@ -86,6 +132,7 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  startApiServer();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
