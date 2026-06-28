@@ -1,14 +1,32 @@
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { createRequire } from 'module';
 
-// Clean up environment variables injected by VS Code to prevent it from intercepting Electron
 delete process.env.ELECTRON_RUN_AS_NODE;
 delete process.env.ELECTRON_NO_ASAR;
+
+try {
+  execSync('xset s off', { env: process.env });
+  execSync('xset -dpms', { env: process.env });
+  execSync('xset s noblank', { env: process.env });
+} catch (e) { }
 
 const require = createRequire(import.meta.url);
 const electronPath = require('electron');
 
-const child = spawn(electronPath, ['.'], {
+// Süreci doğrudan 'nice' ve 'ionice' öncelikleriyle spawn ediyoruz
+const child = spawn('sudo', [
+  'nice', '-n', '-20',
+  'ionice', '-c', '1', '-n', '0',
+  electronPath,
+  '.',
+  '--no-sandbox',
+  '--ignore-gpu-blocklist',
+  '--enable-gpu-rasterization',
+  '--enable-zero-copy',
+  '--enable-accelerated-2d-canvas',
+  '--disable-logging',
+  '--log-level=3'
+], {
   stdio: 'inherit',
   env: process.env
 });
